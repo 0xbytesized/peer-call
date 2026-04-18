@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PeerCall — Video calls without a server</title>
+  <meta name="description" content="Free video calls powered by WebRTC. No signup, no backend, no tracking. Open a link and call." />
+  <meta name="theme-color" content="#0f0f0f" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- LOBBY -->
+  <div id="lobby" class="view">
+    <div class="lobby-content">
+      <div class="lobby-logo">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="12" fill="#6366f1"/>
+          <path d="M16 20a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" fill="white"/>
+          <path d="M24 20a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" fill="white" fill-opacity=".7"/>
+          <path d="M14 28c0-2.2 1.8-4 4-4h12c2.2 0 4 1.8 4 4v4c0 2.2-1.8 4-4 4H18c-2.2 0-4-1.8-4-4v-4Z" fill="white" fill-opacity=".85"/>
+        </svg>
+      </div>
+      <h1>PeerCall</h1>
+      <p class="subtitle">Video calls that never touch a server.<br/>No signup. No tracking. Just a link.</p>
+
+      <div class="lobby-actions">
+        <button id="btn-create" class="btn btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15.5 9.5a4 4 0 1 0-7 0"/><path d="M12 3c4.97 0 9 4.03 9 9v0c0 4.97-4.03 9-9 9h0c-4.97 0-9-4.03-9-9v0c0-4.97 4.03-9 9-9Z"/><path d="M8 16v1M16 16v1"/></svg>
+          Start a call
+        </button>
+        <div class="divider"><span>or join with a code</span></div>
+        <form id="form-join" class="join-form">
+          <input id="input-code" type="text" placeholder="e.g. k7m9x2" maxlength="8" autocomplete="off" spellcheck="false" />
+          <button type="submit" class="btn btn-secondary">Join</button>
+        </form>
+      </div>
+
+      <p class="lobby-footer">P2P · End-to-end encrypted · Open source</p>
+    </div>
+  </div>
+
+  <!-- CALL VIEW -->
+  <div id="call" class="view hidden">
+    <div id="video-grid" class="video-grid"></div>
+
+    <div id="chat-panel" class="chat-panel hidden">
+      <div class="chat-header">
+        <span>Chat</span>
+        <button id="btn-close-chat" class="btn-icon" aria-label="Close chat">✕</button>
+      </div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <form id="form-chat" class="chat-form">
+        <input id="input-chat" type="text" placeholder="Type a message..." autocomplete="off" />
+        <button type="submit" class="btn btn-small">Send</button>
+      </form>
+    </div>
+
+    <div class="controls">
+      <button id="btn-mic" class="control-btn" aria-label="Toggle microphone" title="Mute/Unmute">
+        <svg class="icon-mic-on" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        <svg class="icon-mic-off hidden" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="2" y1="2" x2="22" y2="22"/><path d="M18.89 13.23A7 7 0 0 0 5 10v1"/><path d="M12 19v3"/><path d="M8 2h8a3 3 0 0 1 3 3v5"/></svg>
+      </button>
+      <button id="btn-camera" class="control-btn" aria-label="Toggle camera" title="Camera on/off">
+        <svg class="icon-cam-on" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m23 7-7 5 7 5V7Z"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+        <svg class="icon-cam-off hidden" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="2" y1="2" x2="22" y2="22"/><path d="m23 7-7 5 7 5V7Z"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/></svg>
+      </button>
+      <button id="btn-screen" class="control-btn" aria-label="Share screen" title="Share screen">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </button>
+      <button id="btn-chat" class="control-btn" aria-label="Toggle chat" title="Chat">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <button id="btn-leave" class="control-btn control-btn-danger" aria-label="Leave call" title="Leave call">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </button>
+    </div>
+
+    <div id="room-info" class="room-info">
+      <span id="room-code"></span>
+      <button id="btn-copy" class="btn-icon" title="Copy link">📋</button>
+    </div>
+  </div>
+
+  <!-- CONNECTING OVERLAY -->
+  <div id="connecting" class="view hidden">
+    <div class="connecting-content">
+      <div class="spinner"></div>
+      <p>Connecting...</p>
+      <p class="connecting-detail" id="connecting-detail"></p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
