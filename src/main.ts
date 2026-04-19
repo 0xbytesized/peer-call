@@ -81,7 +81,7 @@ async function createRoom() {
     addLocalVideo(localStream);
   } catch (err: unknown) {
     showView('lobby');
-    alert('Could not create room. Check your connection and try again.');
+    const message = err instanceof Error ? err.message : 'Unknown error'; alert('Could not create room: ' + message);
     console.error(err);
   }
 }

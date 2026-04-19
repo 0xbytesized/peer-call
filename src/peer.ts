@@ -1,11 +1,11 @@
 import Peer, { DataConnection, MediaConnection, PeerOptions } from 'peerjs';
 
-// ─── ICE Servers (STUN + TURN) ───
+// ─── ICE Servers ───
 // STUN discovers public IPs; TURN relays traffic when P2P fails (CGNAT, symmetric NAT).
-// Free TURN from Metered (https://www.metered.ca/tools/openrelay/) ensures calls work
-// behind Movistar/CGNAT routers. Without TURN, ~30% of connections fail silently.
+// PeerJS includes its own STUN+TURN by default, but we add Metered Open Relay
+// for better NAT traversal behind Movistar/ISP routers.
 
-const ICE_SERVERS: RTCConfiguration['iceServers'] = [
+const CUSTOM_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   {
@@ -54,7 +54,17 @@ type EventHandler =
   | { type: 'video-toggle'; peerId: string; enabled: boolean }
   | { type: 'error'; message: string };
 
-const CONNECTION_TIMEOUT_MS = 15000; // 15s to connect before giving up
+const TIMEOUT_MS = 20000;
+
+function buildPeerOptions(id?: string): PeerOptions {
+  return {
+    debug: 2, // Errors + Warnings — helps debug in browser console
+    config: {
+      iceServers: CUSTOM_ICE_SERVERS,
+      sdpSemantics: 'unified-plan',
+    },
+  };
+}
 
 // ─── Peer Manager ───
 
@@ -66,6 +76,7 @@ export class PeerCallManager {
   private isHost = false;
   private roomId = '';
   private userName = '';
+
   private listeners: ((event: EventHandler) => void)[] = [];
 
   constructor() {
@@ -93,64 +104,86 @@ export class PeerCallManager {
     const peerId = `pcall-${this.roomId}`;
     this.isHost = true;
 
+    console.log(`[PeerCall] createRoom: peerId=${peerId}`);
+
     return new Promise((resolve, reject) => {
-      this.peer = new Peer(peerId, this.getPeerConfig());
+      const opts = buildPeerOptions();
+      console.log('[PeerCall] Creating Peer with options:', JSON.stringify(opts));
+      this.peer = new Peer(peerId, opts);
 
       const timeout = setTimeout(() => {
+        console.error('[PeerCall] createRoom timeout after', TIMEOUT_MS, 'ms');
+        this.peer?.destroy();
+        this.peer = null;
         reject(new Error('Timed out creating room. Check your connection.'));
-      }, CONNECTION_TIMEOUT_MS);
+      }, TIMEOUT_MS);
 
-      this.peer.on('open', () => {
+      this.peer.on('open', (id) => {
         clearTimeout(timeout);
+        console.log('[PeerCall] createRoom open, id=', id);
         resolve(this.roomId);
       });
 
       this.peer.on('connection', (conn) => this.handleIncomingConnection(conn));
       this.peer.on('call', (call) => this.handleIncomingCall(call));
+
       this.peer.on('error', (err) => {
         clearTimeout(timeout);
+        console.error('[PeerCall] createRoom error:', err.type, err.message);
         this.emit({ type: 'error', message: err.message });
-        reject(err);
+        reject(new Error(err.message));
+      });
+
+      this.peer.on('disconnected', () => {
+        console.warn('[PeerCall] createRoom: disconnected from signaling server');
       });
     });
   }
 
   async joinRoom(code: string): Promise<void> {
-    // Normalize the room code: trim whitespace, lowercase
     this.roomId = code.trim().toLowerCase();
     this.isHost = false;
     const hostId = `pcall-${this.roomId}`;
 
+    console.log(`[PeerCall] joinRoom: hostId=${hostId}`);
+
     return new Promise((resolve, reject) => {
-      // No ID = PeerJS generates a random one automatically
-      this.peer = new Peer(this.getPeerConfig());
+      const opts = buildPeerOptions();
+      // No ID provided = PeerJS generates one
+      this.peer = new Peer(opts);
 
       const timeout = setTimeout(() => {
+        console.error('[PeerCall] joinRoom timeout after', TIMEOUT_MS, 'ms');
+        this.peer?.destroy();
+        this.peer = null;
         reject(new Error('Timed out joining room. The room may not exist.'));
-      }, CONNECTION_TIMEOUT_MS);
+      }, TIMEOUT_MS);
 
       this.peer.on('open', (myId) => {
-        console.log('[PeerCall] My peer ID:', myId, '| Connecting to host:', hostId);
+        clearTimeout(timeout);
+        console.log(`[PeerCall] joinRoom open, myId=${myId}, connecting to host=${hostId}`);
+
         const conn = this.peer!.connect(hostId, { reliable: true });
 
         const connTimeout = setTimeout(() => {
+          console.error('[PeerCall] joinRoom: data connection to host timed out');
           conn.close();
           reject(new Error('Could not connect to room. The room may not exist.'));
-        }, CONNECTION_TIMEOUT_MS);
+        }, TIMEOUT_MS);
 
         conn.on('open', () => {
           clearTimeout(connTimeout);
-          // Store the connection under the HOST's peer ID, not our own
+          console.log('[PeerCall] joinRoom: data connection open to host');
           this.setupDataConnection(conn, hostId);
-          // Send our info to the host
           conn.send({ type: 'join', payload: { name: this.userName, id: myId } } satisfies PeerMessage);
           resolve();
         });
 
         conn.on('error', (err) => {
           clearTimeout(connTimeout);
+          console.error('[PeerCall] joinRoom: data connection error:', err.message);
           this.emit({ type: 'error', message: `Connection error: ${err.message}` });
-          reject(err);
+          reject(new Error(err.message));
         });
 
         conn.on('close', () => {
@@ -159,10 +192,16 @@ export class PeerCallManager {
       });
 
       this.peer.on('call', (call) => this.handleIncomingCall(call));
+
       this.peer.on('error', (err) => {
         clearTimeout(timeout);
+        console.error('[PeerCall] joinRoom error:', err.type, err.message);
         this.emit({ type: 'error', message: err.message });
-        reject(err);
+        reject(new Error(err.message));
+      });
+
+      this.peer.on('disconnected', () => {
+        console.warn('[PeerCall] joinRoom: disconnected from signaling server');
       });
     });
   }
@@ -175,7 +214,6 @@ export class PeerCallManager {
       audio: audio ? { echoCancellation: true, noiseSuppression: true } : false,
     });
 
-    // Call all existing peers with our stream
     for (const [peerId, remotePeer] of this.peers) {
       this.callPeer(peerId, remotePeer.conn);
     }
@@ -190,10 +228,8 @@ export class PeerCallManager {
         audio: true,
       });
 
-      // Notify peers we're sharing screen
       this.broadcastData({ type: 'screen-start', payload: { id: this.myId } });
 
-      // Replace camera track with screen track in existing calls
       for (const remotePeer of this.peers.values()) {
         if (remotePeer.call) {
           const screenTrack = this.screenStream.getVideoTracks()[0];
@@ -219,7 +255,6 @@ export class PeerCallManager {
 
     this.broadcastData({ type: 'screen-stop', payload: { id: this.myId } });
 
-    // Replace screen track with camera track
     const cameraTrack = this.localStream?.getVideoTracks()[0];
     for (const remotePeer of this.peers.values()) {
       if (remotePeer.call && cameraTrack) {
@@ -267,20 +302,20 @@ export class PeerCallManager {
 
   private handleIncomingConnection(conn: DataConnection) {
     const peerId = conn.peer;
+    console.log('[PeerCall] Incoming connection from:', peerId);
 
     conn.on('open', () => {
+      console.log('[PeerCall] Incoming data connection open from:', peerId);
       this.setupDataConnection(conn, peerId);
 
-      // If we're host, tell the newcomer about all existing peers
       if (this.isHost) {
-        const existingPeers = [...this.peers.values()].map(p => ({ id: p.id, name: p.name }));
+        const existingPeers = [...this.peers.values()]
+          .filter(p => p.id !== peerId) // Don't include the newcomer in their own list
+          .map(p => ({ id: p.id, name: p.name }));
         conn.send({ type: 'peer-list', payload: existingPeers } satisfies PeerMessage);
-
-        // Also tell all existing peers about the newcomer
-        this.broadcastData({ type: 'join', payload: { id: peerId } });
+        this.broadcastData({ type: 'join', payload: { id: peerId, name: '...' } });
       }
 
-      // Call the new peer if we have media
       if (this.localStream) {
         this.callPeer(peerId, conn);
       }
@@ -288,9 +323,13 @@ export class PeerCallManager {
   }
 
   private setupDataConnection(conn: DataConnection, peerId: string) {
+    // Don't overwrite existing connection unless this is a new one
+    const existing = this.peers.get(peerId);
+    if (existing && existing.conn === conn) return;
+
     const remotePeer: RemotePeer = {
       id: peerId,
-      name: '...',
+      name: existing?.name ?? '...',
       conn,
       audioEnabled: true,
       videoEnabled: true,
@@ -318,23 +357,12 @@ export class PeerCallManager {
       case 'join': {
         const { name, id } = msg.payload as { name: string; id: string };
         const peer = this.peers.get(fromId);
-        if (peer) {
-          peer.name = name;
-        } else if (id) {
-          // A joiner got a peer-list and is connecting to us
-          // They sent their info, store it
-          const newPeer = this.peers.get(fromId);
-          if (newPeer) newPeer.name = name;
-        }
-        this.emit({ type: 'peer-joined', peer: this.peers.get(fromId) ?? { id: fromId, name, conn: this.peers.get(fromId)?.conn!, audioEnabled: true, videoEnabled: true } });
+        if (peer) peer.name = name;
+        this.emit({ type: 'peer-joined', peer: peer ?? { id: fromId, name: name, conn: this.peers.get(fromId)?.conn!, audioEnabled: true, videoEnabled: true } });
 
-        // Connect to this peer's data channel if we're not the host
-        // and haven't connected yet
-        if (!this.isHost && fromId !== this.myId) {
-          const existingPeer = this.peers.get(fromId);
-          if (!existingPeer?.conn) {
-            this.connectToPeer(fromId);
-          }
+        // Non-host peers connect to each other directly
+        if (!this.isHost && id && id !== this.myId && !this.peers.has(id)) {
+          this.connectToPeer(id);
         }
         break;
       }
@@ -373,15 +401,12 @@ export class PeerCallManager {
         break;
       }
 
-      case 'screen-start': {
-        // Peer started screen sharing — we'll see it via the stream
+      case 'screen-start':
         break;
-      }
 
-      case 'screen-stop': {
+      case 'screen-stop':
         this.emit({ type: 'screen-stop', peerId: fromId });
         break;
-      }
 
       case 'rename': {
         const { name } = msg.payload as { name: string };
@@ -396,6 +421,7 @@ export class PeerCallManager {
     if (!this.peer || peerId === this.myId) return;
     if (this.peers.has(peerId)) return;
 
+    console.log('[PeerCall] Connecting to peer:', peerId);
     const conn = this.peer.connect(peerId, { reliable: true });
     conn.on('open', () => {
       conn.send({ type: 'join', payload: { name: this.userName, id: this.myId } } satisfies PeerMessage);
@@ -406,7 +432,7 @@ export class PeerCallManager {
     });
   }
 
-  private callPeer(peerId: string, conn: DataConnection) {
+  private callPeer(peerId: string, _conn: DataConnection) {
     if (!this.localStream || !this.peer) return;
 
     const call = this.peer.call(peerId, this.localStream);
@@ -425,11 +451,11 @@ export class PeerCallManager {
   }
 
   private handleIncomingCall(call: MediaConnection) {
-    // Answer with our local stream
+    console.log('[PeerCall] Incoming call from:', call.peer);
+
     if (this.localStream) {
       call.answer(this.localStream);
     } else {
-      // Answer with empty stream if we haven't started media yet
       call.answer();
     }
 
@@ -453,18 +479,10 @@ export class PeerCallManager {
     }
   }
 
-  private getPeerConfig(): PeerOptions {
-    return {
-      config: {
-        iceServers: ICE_SERVERS,
-      },
-    };
-  }
-
   private generateCode(): string {
-    const chars = 'abcdefghijkmnpqrstuvwxyz2345679'; // no confused chars
+    const chars = 'abcdefghijkmnpqrstuvwxyz2345679';
     let code = '';
-    for (let i = 0; i < 9; i++) { // 9 chars = ~42 bits, hard to guess
+    for (let i = 0; i < 9; i++) {
       code += chars[Math.floor(Math.random() * chars.length)];
     }
     return code;
