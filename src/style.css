@@ -262,9 +262,10 @@ body {
 
 .control-btn:hover { background: var(--border); }
 .control-btn.active { background: var(--accent); color: white; }
-.control-btn.off { background: var(--danger); color: white; }
-.control-btn-danger { background: var(--danger); color: white; }
-.control-btn-danger:hover { background: #dc2626; }
+.control-btn.off { background: rgba(239, 68, 68, 0.25); color: #ef4444; }
+.control-btn-danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.control-btn-danger:hover { background: #ef4444; color: white; }
+.control-btn-danger:active { background: #dc2626; color: white; }
 
 .btn-icon {
   background: none;
