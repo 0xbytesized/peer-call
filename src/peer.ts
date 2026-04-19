@@ -54,6 +54,8 @@ type EventHandler =
   | { type: 'video-toggle'; peerId: string; enabled: boolean }
   | { type: 'error'; message: string };
 
+const CONNECTION_TIMEOUT_MS = 15000; // 15s to connect before giving up
+
 // ─── Peer Manager ───
 
 export class PeerCallManager {
@@ -94,13 +96,19 @@ export class PeerCallManager {
     return new Promise((resolve, reject) => {
       this.peer = new Peer(peerId, this.getPeerConfig());
 
+      const timeout = setTimeout(() => {
+        reject(new Error('Timed out creating room. Check your connection.'));
+      }, CONNECTION_TIMEOUT_MS);
+
       this.peer.on('open', () => {
+        clearTimeout(timeout);
         resolve(this.roomId);
       });
 
       this.peer.on('connection', (conn) => this.handleIncomingConnection(conn));
       this.peer.on('call', (call) => this.handleIncomingCall(call));
       this.peer.on('error', (err) => {
+        clearTimeout(timeout);
         this.emit({ type: 'error', message: err.message });
         reject(err);
       });
@@ -108,30 +116,51 @@ export class PeerCallManager {
   }
 
   async joinRoom(code: string): Promise<void> {
-    this.roomId = code;
+    // Normalize the room code: trim whitespace, lowercase
+    this.roomId = code.trim().toLowerCase();
     this.isHost = false;
-    const hostId = `pcall-${code}`;
+    const hostId = `pcall-${this.roomId}`;
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer('', this.getPeerConfig());
+      // No ID = PeerJS generates a random one automatically
+      this.peer = new Peer(this.getPeerConfig());
 
-      this.peer.on('open', () => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Timed out joining room. The room may not exist.'));
+      }, CONNECTION_TIMEOUT_MS);
+
+      this.peer.on('open', (myId) => {
+        console.log('[PeerCall] My peer ID:', myId, '| Connecting to host:', hostId);
         const conn = this.peer!.connect(hostId, { reliable: true });
 
+        const connTimeout = setTimeout(() => {
+          conn.close();
+          reject(new Error('Could not connect to room. The room may not exist.'));
+        }, CONNECTION_TIMEOUT_MS);
+
         conn.on('open', () => {
-          conn.send({ type: 'join', payload: { name: this.userName, id: this.peer!.id } } satisfies PeerMessage);
-          this.setupDataConnection(conn, this.peer!.id);
+          clearTimeout(connTimeout);
+          // Store the connection under the HOST's peer ID, not our own
+          this.setupDataConnection(conn, hostId);
+          // Send our info to the host
+          conn.send({ type: 'join', payload: { name: this.userName, id: myId } } satisfies PeerMessage);
           resolve();
         });
 
         conn.on('error', (err) => {
+          clearTimeout(connTimeout);
           this.emit({ type: 'error', message: `Connection error: ${err.message}` });
           reject(err);
+        });
+
+        conn.on('close', () => {
+          clearTimeout(connTimeout);
         });
       });
 
       this.peer.on('call', (call) => this.handleIncomingCall(call));
       this.peer.on('error', (err) => {
+        clearTimeout(timeout);
         this.emit({ type: 'error', message: err.message });
         reject(err);
       });
@@ -164,7 +193,7 @@ export class PeerCallManager {
       // Notify peers we're sharing screen
       this.broadcastData({ type: 'screen-start', payload: { id: this.myId } });
 
-      // Add screen track to existing calls
+      // Replace camera track with screen track in existing calls
       for (const remotePeer of this.peers.values()) {
         if (remotePeer.call) {
           const screenTrack = this.screenStream.getVideoTracks()[0];
@@ -190,7 +219,7 @@ export class PeerCallManager {
 
     this.broadcastData({ type: 'screen-stop', payload: { id: this.myId } });
 
-    // Replace with camera track
+    // Replace screen track with camera track
     const cameraTrack = this.localStream?.getVideoTracks()[0];
     for (const remotePeer of this.peers.values()) {
       if (remotePeer.call && cameraTrack) {
@@ -297,7 +326,7 @@ export class PeerCallManager {
           const newPeer = this.peers.get(fromId);
           if (newPeer) newPeer.name = name;
         }
-        this.emit({ type: 'peer-joined', peer: this.peers.get(fromId)! });
+        this.emit({ type: 'peer-joined', peer: this.peers.get(fromId) ?? { id: fromId, name, conn: this.peers.get(fromId)?.conn!, audioEnabled: true, videoEnabled: true } });
 
         // Connect to this peer's data channel if we're not the host
         // and haven't connected yet
