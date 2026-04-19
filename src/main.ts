@@ -1,9 +1,7 @@
 import { PeerCallManager } from './peer.js';
-import * as lucide from 'lucide';
+import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check } from 'lucide';
 import './style.css';
-
-// Initialize all Lucide icons from data-lucide attributes in the HTML
-lucide.createIcons();
+import './style.css';
 
 // ─── DOM refs ───
 
@@ -30,6 +28,48 @@ const formJoin = $<HTMLFormElement>('form-join');
 const inputCode = $<HTMLInputElement>('input-code');
 const formChat = $<HTMLFormElement>('form-chat');
 
+// ─── Icon rendering (no createIcons, direct SVG) ───
+
+const iconMap = {
+  mic: Mic,
+  'mic-off': MicOff,
+  video: Video,
+  'video-off': VideoOff,
+  monitor: Monitor,
+  'message-square': MessageSquare,
+  'phone-off': PhoneOff,
+  x: X,
+  copy: Copy,
+  send: Send,
+  check: Check,
+  'video-start': Video,
+} as const;
+
+function renderIcon(name: keyof typeof iconMap, size = 24): string {
+  const icon = iconMap[name];
+  const [tag, attrs] = icon;
+  const svgAttrs = Object.entries(attrs)
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(' ');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${svgAttrs}>${icon.slice(2).map((el: any) => typeof el === 'string' ? el : '').join('')}</svg>`;
+}
+
+// Replace all data-lucide icons with actual SVGs
+function initIcons() {
+  document.querySelectorAll('[data-lucide]').forEach(el => {
+    const name = el.getAttribute('data-lucide') as keyof typeof iconMap;
+    if (name && iconMap[name]) {
+      el.outerHTML = renderIcon(name);
+    }
+  });
+}
+
+function replaceIcon(btn: HTMLButtonElement, name: keyof typeof iconMap) {
+  // Remove existing SVGs
+  btn.querySelectorAll('svg').forEach(s => s.remove());
+  btn.insertAdjacentHTML('beforeend', renderIcon(name));
+}
+
 // ─── State ───
 
 let manager: PeerCallManager;
@@ -40,13 +80,13 @@ let screenSharing = false;
 let chatOpen = false;
 let mediaReady = false;
 
-// Video tile map: peerId -> HTMLVideoElement
 const videoTiles = new Map<string, { container: HTMLDivElement; video: HTMLVideoElement; nameTag: HTMLSpanElement; mutedInd: HTMLDivElement }>();
 
 // ─── Init ───
 
 function init() {
-  // Check URL for room code
+  initIcons();
+
   const hash = window.location.hash.slice(1).trim();
   const params = new URLSearchParams(window.location.search);
   const room = params.get('room') || hash;
@@ -57,7 +97,6 @@ function init() {
     return;
   }
 
-  // Setup lobby events
   btnCreate.addEventListener('click', createRoom);
   formJoin.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -110,7 +149,7 @@ async function joinRoom(code: string) {
   }
 }
 
-// ─── Media request (graceful degradation) ───
+// ─── Media request ───
 
 async function requestMedia() {
   try {
@@ -173,11 +212,8 @@ function setupManagerEvents(mgr: PeerCallManager) {
         updateMuteIndicator(event.peerId, !event.enabled);
         break;
       case 'video-toggle':
-        break;
       case 'screen-stop':
-        break;
       case 'error':
-        console.error('PeerCall error:', event.message);
         break;
     }
   });
@@ -198,26 +234,8 @@ function showCallView(code: string) {
 }
 
 function updateMicCameraButtons() {
-  if (!micOn) {
-    btnMic.classList.add('off');
-    showIcon(btnMic, 'mic-off');
-  } else {
-    showIcon(btnMic, 'mic');
-  }
-  if (!cameraOn) {
-    btnCamera.classList.add('off');
-    showIcon(btnCamera, 'video-off');
-  } else {
-    showIcon(btnCamera, 'video');
-  }
-}
-
-function showIcon(btn: HTMLButtonElement, iconName: string) {
-  btn.querySelectorAll('svg').forEach(el => el.remove());
-  const i = document.createElement('i');
-  i.setAttribute('data-lucide', iconName);
-  btn.appendChild(i);
-  lucide.createIcons();
+  replaceIcon(btnMic, micOn ? 'mic' : 'mic-off');
+  replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off');
 }
 
 function setupCallControls() {
@@ -228,15 +246,13 @@ function setupCallControls() {
         addLocalVideo(localStream);
         mediaReady = true;
         micOn = true;
-      } catch {
-        return;
-      }
+      } catch { return; }
     } else {
       micOn = !micOn;
     }
     manager.toggleAudio(micOn);
     btnMic.classList.toggle('off', !micOn);
-    showIcon(btnMic, micOn ? 'mic' : 'mic-off');
+    replaceIcon(btnMic, micOn ? 'mic' : 'mic-off');
   });
 
   btnCamera.addEventListener('click', async () => {
@@ -246,24 +262,19 @@ function setupCallControls() {
         addLocalVideo(localStream);
         mediaReady = true;
         cameraOn = true;
-      } catch {
-        return;
-      }
+      } catch { return; }
     } else {
       cameraOn = !cameraOn;
       manager.toggleVideo(cameraOn);
     }
     btnCamera.classList.toggle('off', !cameraOn);
-    showIcon(btnCamera, cameraOn ? 'video' : 'video-off');
+    replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off');
   });
 
   btnScreen.addEventListener('click', async () => {
     if (!screenSharing) {
       const stream = await manager.startScreenShare();
-      if (stream) {
-        screenSharing = true;
-        btnScreen.classList.add('active');
-      }
+      if (stream) { screenSharing = true; btnScreen.classList.add('active'); }
     } else {
       manager.stopScreenShare();
       screenSharing = false;
@@ -291,18 +302,8 @@ function setupCallControls() {
   btnCopy.addEventListener('click', () => {
     const url = `${window.location.origin}${window.location.pathname}#${manager.roomCode}`;
     navigator.clipboard.writeText(url).then(() => {
-      const icon = btnCopy.querySelector('svg');
-      if (icon) {
-        icon.outerHTML = '<i data-lucide="check"></i>';
-        lucide.createIcons();
-      }
-      setTimeout(() => {
-        const check = btnCopy.querySelector('svg');
-        if (check) {
-          check.outerHTML = '<i data-lucide="copy"></i>';
-          lucide.createIcons();
-        }
-      }, 2000);
+      replaceIcon(btnCopy, 'check');
+      setTimeout(() => replaceIcon(btnCopy, 'copy'), 2000);
     });
   });
 
@@ -332,7 +333,6 @@ function addLocalVideo(stream: MediaStream) {
 
 function addRemoteVideo(peerId: string, stream: MediaStream) {
   removeVideoTile(peerId);
-
   const peer = manager.peerList.find(p => p.id === peerId);
   const name = peer?.name || '...';
   const tile = createVideoTile(peerId, name, false);
@@ -372,11 +372,7 @@ function createVideoTile(id: string, name: string, isLocal: boolean) {
 
 function removeVideoTile(peerId: string) {
   const tile = videoTiles.get(peerId);
-  if (tile) {
-    tile.container.remove();
-    videoTiles.delete(peerId);
-    updateGridCount();
-  }
+  if (tile) { tile.container.remove(); videoTiles.delete(peerId); updateGridCount(); }
 }
 
 function updatePeerName(peerId: string, name: string) {
@@ -390,8 +386,7 @@ function updateMuteIndicator(peerId: string, muted: boolean) {
 }
 
 function updateGridCount() {
-  const count = videoTiles.size;
-  videoGrid.dataset.count = String(count);
+  videoGrid.dataset.count = String(videoTiles.size);
 }
 
 // ─── Chat ───
@@ -421,9 +416,7 @@ function addChatMessage(from: string, text: string, isSelf: boolean) {
 
 window.addEventListener('hashchange', () => {
   const code = window.location.hash.slice(1).trim();
-  if (code && code.length >= 4) {
-    joinRoom(code);
-  }
+  if (code && code.length >= 4) joinRoom(code);
 });
 
 // ─── Start ───
