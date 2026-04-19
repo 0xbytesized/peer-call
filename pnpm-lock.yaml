@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      lucide:
+        specifier: ^1.8.0
+        version: 1.8.0
       peerjs:
         specifier: ^1.5.4
         version: 1.5.5
@@ -344,6 +347,9 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  lucide@1.8.0:
+    resolution: {integrity: sha512-JjV/QnadgFLj1Pyu9IKl0lknrolFEzo04B64QcYLLeRzZl/iEHpdbSrRRKbyXcv45SZNv+WGjIUCT33e7xHO6Q==}
+
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -629,6 +635,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  lucide@1.8.0: {}
 
   nanoid@3.3.11: {}
 

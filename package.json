@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "lucide": "^1.8.0",
     "peerjs": "^1.5.4"
   },
   "devDependencies": {

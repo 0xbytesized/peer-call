@@ -1,5 +1,9 @@
 import { PeerCallManager } from './peer.js';
+import * as lucide from 'lucide';
 import './style.css';
+
+// Initialize all Lucide icons from data-lucide attributes in the HTML
+lucide.createIcons();
 
 // ─── DOM refs ───
 
@@ -60,8 +64,6 @@ function init() {
     const code = inputCode.value.trim().toLowerCase();
     if (code) joinRoom(code);
   });
-
-  // No autofocus — it triggers mobile keyboard and is annoying
 }
 
 // ─── Create room ───
@@ -74,12 +76,9 @@ async function createRoom() {
   setupManagerEvents(manager);
 
   try {
-    // 1. Create the room (no camera needed for this)
     const code = await manager.createRoom();
     window.history.replaceState(null, '', `#${code}`);
     showCallView(code);
-
-    // 2. Try to get camera/mic (may fail on mobile)
     await requestMedia();
   } catch (err: unknown) {
     showView('lobby');
@@ -99,12 +98,9 @@ async function joinRoom(code: string) {
   setupManagerEvents(manager);
 
   try {
-    // 1. Join the room (no camera needed)
     await manager.joinRoom(code);
     window.history.replaceState(null, '', `#${code}`);
     showCallView(code);
-
-    // 2. Try to get camera/mic
     await requestMedia();
   } catch (err: unknown) {
     showView('lobby');
@@ -118,16 +114,11 @@ async function joinRoom(code: string) {
 
 async function requestMedia() {
   try {
-    // On mobile, we need to request audio first (less intrusive than video)
-    // then video. Some mobile browsers only allow one at a time.
     localStream = await manager.startMedia(true, true);
     addLocalVideo(localStream);
     mediaReady = true;
     updateMicCameraButtons();
-  } catch (err) {
-    console.warn('[PeerCall] Could not get camera/mic:', err);
-
-    // Try audio only (many mobile browsers restrict video)
+  } catch {
     try {
       localStream = await manager.startMedia(false, true);
       addLocalVideo(localStream);
@@ -135,10 +126,7 @@ async function requestMedia() {
       mediaReady = true;
       updateMicCameraButtons();
       btnCamera.classList.add('off');
-    } catch (audioErr) {
-      console.warn('[PeerCall] Could not get audio either:', audioErr);
-      // No media at all — user can still use chat and hear others
-      // Show a placeholder tile
+    } catch {
       addNoMediaTile();
       micOn = false;
       cameraOn = false;
@@ -151,7 +139,6 @@ async function requestMedia() {
 
 function addNoMediaTile() {
   const tile = createVideoTile('local', manager.myName, true);
-  // Show a "no camera" placeholder
   const placeholder = document.createElement('div');
   placeholder.className = 'no-camera-placeholder';
   placeholder.textContent = '📷';
@@ -186,10 +173,8 @@ function setupManagerEvents(mgr: PeerCallManager) {
         updateMuteIndicator(event.peerId, !event.enabled);
         break;
       case 'video-toggle':
-        // Could add video-off indicator here
         break;
       case 'screen-stop':
-        // Could handle screen share stop indicator
         break;
       case 'error':
         console.error('PeerCall error:', event.message);
@@ -215,51 +200,61 @@ function showCallView(code: string) {
 function updateMicCameraButtons() {
   if (!micOn) {
     btnMic.classList.add('off');
-    toggleIcon(btnMic, 'icon-mic-on', 'icon-mic-off', true);
+    showIcon(btnMic, 'mic-off');
+  } else {
+    showIcon(btnMic, 'mic');
   }
   if (!cameraOn) {
     btnCamera.classList.add('off');
-    toggleIcon(btnCamera, 'icon-cam-on', 'icon-cam-off', true);
+    showIcon(btnCamera, 'video-off');
+  } else {
+    showIcon(btnCamera, 'video');
   }
+}
+
+function showIcon(btn: HTMLButtonElement, iconName: string) {
+  btn.querySelectorAll('svg').forEach(el => el.remove());
+  const i = document.createElement('i');
+  i.setAttribute('data-lucide', iconName);
+  btn.appendChild(i);
+  lucide.createIcons();
 }
 
 function setupCallControls() {
   btnMic.addEventListener('click', async () => {
     if (!mediaReady && !micOn) {
-      // Try to get media when user taps mic on
       try {
         localStream = await manager.startMedia(cameraOn, true);
         addLocalVideo(localStream);
         mediaReady = true;
         micOn = true;
       } catch {
-        return; // Still denied
+        return;
       }
     } else {
       micOn = !micOn;
     }
     manager.toggleAudio(micOn);
     btnMic.classList.toggle('off', !micOn);
-    toggleIcon(btnMic, 'icon-mic-on', 'icon-mic-off', !micOn);
+    showIcon(btnMic, micOn ? 'mic' : 'mic-off');
   });
 
   btnCamera.addEventListener('click', async () => {
     if (!mediaReady && !cameraOn) {
-      // Try to get media when user taps camera on
       try {
         localStream = await manager.startMedia(true, micOn);
         addLocalVideo(localStream);
         mediaReady = true;
         cameraOn = true;
       } catch {
-        return; // Still denied
+        return;
       }
     } else {
       cameraOn = !cameraOn;
       manager.toggleVideo(cameraOn);
     }
     btnCamera.classList.toggle('off', !cameraOn);
-    toggleIcon(btnCamera, 'icon-cam-on', 'icon-cam-off', !cameraOn);
+    showIcon(btnCamera, cameraOn ? 'video' : 'video-off');
   });
 
   btnScreen.addEventListener('click', async () => {
@@ -296,8 +291,18 @@ function setupCallControls() {
   btnCopy.addEventListener('click', () => {
     const url = `${window.location.origin}${window.location.pathname}#${manager.roomCode}`;
     navigator.clipboard.writeText(url).then(() => {
-      btnCopy.textContent = '✅';
-      setTimeout(() => { btnCopy.textContent = '📋'; }, 2000);
+      const icon = btnCopy.querySelector('svg');
+      if (icon) {
+        icon.outerHTML = '<i data-lucide="check"></i>';
+        lucide.createIcons();
+      }
+      setTimeout(() => {
+        const check = btnCopy.querySelector('svg');
+        if (check) {
+          check.outerHTML = '<i data-lucide="copy"></i>';
+          lucide.createIcons();
+        }
+      }, 2000);
     });
   });
 
@@ -311,17 +316,9 @@ function setupCallControls() {
   });
 }
 
-function toggleIcon(btn: HTMLButtonElement, onClass: string, offClass: string, isOff: boolean) {
-  const onIcon = btn.querySelector(`.${onClass}`);
-  const offIcon = btn.querySelector(`.${offClass}`);
-  if (onIcon) onIcon.classList.toggle('hidden', isOff);
-  if (offIcon) offIcon.classList.toggle('hidden', !isOff);
-}
-
 // ─── Video Tiles ───
 
 function addLocalVideo(stream: MediaStream) {
-  // Remove no-media placeholder if it exists
   removeVideoTile('local');
   const tile = createVideoTile('local', manager.myName, true);
   tile.video.srcObject = stream;
@@ -334,7 +331,6 @@ function addLocalVideo(stream: MediaStream) {
 }
 
 function addRemoteVideo(peerId: string, stream: MediaStream) {
-  // Remove existing tile for this peer if any
   removeVideoTile(peerId);
 
   const peer = manager.peerList.find(p => p.id === peerId);
