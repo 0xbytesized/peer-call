@@ -61,8 +61,7 @@ function init() {
     if (code) joinRoom(code);
   });
 
-  // Focus input
-  inputCode.focus();
+  // No autofocus — it triggers mobile keyboard and is annoying
 }
 
 // ─── Create room ───
