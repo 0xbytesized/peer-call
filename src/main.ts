@@ -1,7 +1,50 @@
 import { PeerCallManager } from './peer.js';
 import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check } from 'lucide';
 import './style.css';
-import './style.css';
+
+// ─── Icon rendering (Lucide, tree-shaken) ───
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const iconMap: Record<string, any> = {
+  mic: Mic,
+  'mic-off': MicOff,
+  video: Video,
+  'video-off': VideoOff,
+  monitor: Monitor,
+  'message-square': MessageSquare,
+  'phone-off': PhoneOff,
+  x: X,
+  copy: Copy,
+  send: Send,
+  check: Check,
+};
+
+function renderIcon(name: string, size = 24): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const children: any = iconMap[name];
+  if (!children) return '';
+  const svgContent = children.map((child: any) => {
+    const tag = child[0];
+    const attrs = child[1];
+    const attrsStr = Object.entries(attrs).map(([k, v]: [string, any]) => `${k}="${v}"`).join(' ');
+    return `<${tag} ${attrsStr}/>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svgContent}</svg>`;
+}
+
+function initIcons() {
+  document.querySelectorAll('[data-lucide]').forEach(el => {
+    const name = el.getAttribute('data-lucide') || '';
+    if (name && iconMap[name]) {
+      el.outerHTML = renderIcon(name);
+    }
+  });
+}
+
+function replaceIcon(btn: HTMLButtonElement, name: string) {
+  btn.querySelectorAll('svg').forEach(s => s.remove());
+  btn.insertAdjacentHTML('beforeend', renderIcon(name));
+}
 
 // ─── DOM refs ───
 
@@ -27,48 +70,6 @@ const btnCopy = $<HTMLButtonElement>('btn-copy');
 const formJoin = $<HTMLFormElement>('form-join');
 const inputCode = $<HTMLInputElement>('input-code');
 const formChat = $<HTMLFormElement>('form-chat');
-
-// ─── Icon rendering (no createIcons, direct SVG) ───
-
-const iconMap = {
-  mic: Mic,
-  'mic-off': MicOff,
-  video: Video,
-  'video-off': VideoOff,
-  monitor: Monitor,
-  'message-square': MessageSquare,
-  'phone-off': PhoneOff,
-  x: X,
-  copy: Copy,
-  send: Send,
-  check: Check,
-  'video-start': Video,
-} as const;
-
-function renderIcon(name: keyof typeof iconMap, size = 24): string {
-  const icon = iconMap[name];
-  const [tag, attrs] = icon;
-  const svgAttrs = Object.entries(attrs)
-    .map(([k, v]) => `${k}="${v}"`)
-    .join(' ');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${svgAttrs}>${icon.slice(2).map((el: any) => typeof el === 'string' ? el : '').join('')}</svg>`;
-}
-
-// Replace all data-lucide icons with actual SVGs
-function initIcons() {
-  document.querySelectorAll('[data-lucide]').forEach(el => {
-    const name = el.getAttribute('data-lucide') as keyof typeof iconMap;
-    if (name && iconMap[name]) {
-      el.outerHTML = renderIcon(name);
-    }
-  });
-}
-
-function replaceIcon(btn: HTMLButtonElement, name: keyof typeof iconMap) {
-  // Remove existing SVGs
-  btn.querySelectorAll('svg').forEach(s => s.remove());
-  btn.insertAdjacentHTML('beforeend', renderIcon(name));
-}
 
 // ─── State ───
 
