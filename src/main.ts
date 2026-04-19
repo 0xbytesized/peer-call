@@ -34,6 +34,7 @@ let micOn = true;
 let cameraOn = true;
 let screenSharing = false;
 let chatOpen = false;
+let mediaReady = false;
 
 // Video tile map: peerId -> HTMLVideoElement
 const videoTiles = new Map<string, { container: HTMLDivElement; video: HTMLVideoElement; nameTag: HTMLSpanElement; mutedInd: HTMLDivElement }>();
@@ -74,15 +75,18 @@ async function createRoom() {
   setupManagerEvents(manager);
 
   try {
+    // 1. Create the room (no camera needed for this)
     const code = await manager.createRoom();
     window.history.replaceState(null, '', `#${code}`);
     showCallView(code);
-    localStream = await manager.startMedia(true, true);
-    addLocalVideo(localStream);
+
+    // 2. Try to get camera/mic (may fail on mobile)
+    await requestMedia();
   } catch (err: unknown) {
     showView('lobby');
-    const message = err instanceof Error ? err.message : 'Unknown error'; alert('Could not create room: ' + message);
-    console.error(err);
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    alert('Could not create room: ' + message);
+    console.error('[PeerCall] createRoom failed:', err);
   }
 }
 
@@ -90,22 +94,73 @@ async function createRoom() {
 
 async function joinRoom(code: string) {
   showView('connecting');
-  connectingDetail.textContent = `Join room ${code}...`;
+  connectingDetail.textContent = `Joining room ${code}...`;
 
   manager = new PeerCallManager();
   setupManagerEvents(manager);
 
   try {
+    // 1. Join the room (no camera needed)
     await manager.joinRoom(code);
     window.history.replaceState(null, '', `#${code}`);
     showCallView(code);
-    localStream = await manager.startMedia(true, true);
-    addLocalVideo(localStream);
+
+    // 2. Try to get camera/mic
+    await requestMedia();
   } catch (err: unknown) {
     showView('lobby');
-    alert('Could not join room. Check the code and try again.');
-    console.error(err);
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    alert('Could not join room: ' + message);
+    console.error('[PeerCall] joinRoom failed:', err);
   }
+}
+
+// ─── Media request (graceful degradation) ───
+
+async function requestMedia() {
+  try {
+    // On mobile, we need to request audio first (less intrusive than video)
+    // then video. Some mobile browsers only allow one at a time.
+    localStream = await manager.startMedia(true, true);
+    addLocalVideo(localStream);
+    mediaReady = true;
+    updateMicCameraButtons();
+  } catch (err) {
+    console.warn('[PeerCall] Could not get camera/mic:', err);
+
+    // Try audio only (many mobile browsers restrict video)
+    try {
+      localStream = await manager.startMedia(false, true);
+      addLocalVideo(localStream);
+      cameraOn = false;
+      mediaReady = true;
+      updateMicCameraButtons();
+      btnCamera.classList.add('off');
+    } catch (audioErr) {
+      console.warn('[PeerCall] Could not get audio either:', audioErr);
+      // No media at all — user can still use chat and hear others
+      // Show a placeholder tile
+      addNoMediaTile();
+      micOn = false;
+      cameraOn = false;
+      updateMicCameraButtons();
+      btnMic.classList.add('off');
+      btnCamera.classList.add('off');
+    }
+  }
+}
+
+function addNoMediaTile() {
+  const tile = createVideoTile('local', manager.myName, true);
+  // Show a "no camera" placeholder
+  const placeholder = document.createElement('div');
+  placeholder.className = 'no-camera-placeholder';
+  placeholder.textContent = '📷';
+  placeholder.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#1a1a2e;z-index:1;';
+  tile.container.style.position = 'relative';
+  tile.container.insertBefore(placeholder, tile.video);
+  videoGrid.appendChild(tile.container);
+  updateGridCount();
 }
 
 // ─── Manager events ───
@@ -158,17 +213,52 @@ function showCallView(code: string) {
   setupCallControls();
 }
 
+function updateMicCameraButtons() {
+  if (!micOn) {
+    btnMic.classList.add('off');
+    toggleIcon(btnMic, 'icon-mic-on', 'icon-mic-off', true);
+  }
+  if (!cameraOn) {
+    btnCamera.classList.add('off');
+    toggleIcon(btnCamera, 'icon-cam-on', 'icon-cam-off', true);
+  }
+}
+
 function setupCallControls() {
-  btnMic.addEventListener('click', () => {
-    micOn = !micOn;
+  btnMic.addEventListener('click', async () => {
+    if (!mediaReady && !micOn) {
+      // Try to get media when user taps mic on
+      try {
+        localStream = await manager.startMedia(cameraOn, true);
+        addLocalVideo(localStream);
+        mediaReady = true;
+        micOn = true;
+      } catch {
+        return; // Still denied
+      }
+    } else {
+      micOn = !micOn;
+    }
     manager.toggleAudio(micOn);
     btnMic.classList.toggle('off', !micOn);
     toggleIcon(btnMic, 'icon-mic-on', 'icon-mic-off', !micOn);
   });
 
-  btnCamera.addEventListener('click', () => {
-    cameraOn = !cameraOn;
-    manager.toggleVideo(cameraOn);
+  btnCamera.addEventListener('click', async () => {
+    if (!mediaReady && !cameraOn) {
+      // Try to get media when user taps camera on
+      try {
+        localStream = await manager.startMedia(true, micOn);
+        addLocalVideo(localStream);
+        mediaReady = true;
+        cameraOn = true;
+      } catch {
+        return; // Still denied
+      }
+    } else {
+      cameraOn = !cameraOn;
+      manager.toggleVideo(cameraOn);
+    }
     btnCamera.classList.toggle('off', !cameraOn);
     toggleIcon(btnCamera, 'icon-cam-on', 'icon-cam-off', !cameraOn);
   });
@@ -232,10 +322,13 @@ function toggleIcon(btn: HTMLButtonElement, onClass: string, offClass: string, i
 // ─── Video Tiles ───
 
 function addLocalVideo(stream: MediaStream) {
+  // Remove no-media placeholder if it exists
+  removeVideoTile('local');
   const tile = createVideoTile('local', manager.myName, true);
   tile.video.srcObject = stream;
   tile.video.autoplay = true;
   tile.video.muted = true;
+  tile.video.playsInline = true;
   tile.video.classList.add('mirror');
   videoGrid.appendChild(tile.container);
   updateGridCount();
@@ -250,6 +343,7 @@ function addRemoteVideo(peerId: string, stream: MediaStream) {
   const tile = createVideoTile(peerId, name, false);
   tile.video.srcObject = stream;
   tile.video.autoplay = true;
+  tile.video.playsInline = true;
   videoGrid.appendChild(tile.container);
   updateGridCount();
 }
