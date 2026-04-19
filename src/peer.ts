@@ -1,4 +1,29 @@
-import Peer, { DataConnection, MediaConnection } from 'peerjs';
+import Peer, { DataConnection, MediaConnection, PeerOptions } from 'peerjs';
+
+// ─── ICE Servers (STUN + TURN) ───
+// STUN discovers public IPs; TURN relays traffic when P2P fails (CGNAT, symmetric NAT).
+// Free TURN from Metered (https://www.metered.ca/tools/openrelay/) ensures calls work
+// behind Movistar/CGNAT routers. Without TURN, ~30% of connections fail silently.
+
+const ICE_SERVERS: RTCConfiguration['iceServers'] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
 
 // ─── Types ───
 
@@ -67,7 +92,7 @@ export class PeerCallManager {
     this.isHost = true;
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer(peerId);
+      this.peer = new Peer(peerId, this.getPeerConfig());
 
       this.peer.on('open', () => {
         resolve(this.roomId);
@@ -88,7 +113,7 @@ export class PeerCallManager {
     const hostId = `pcall-${code}`;
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer();
+      this.peer = new Peer('', this.getPeerConfig());
 
       this.peer.on('open', () => {
         const conn = this.peer!.connect(hostId, { reliable: true });
@@ -399,10 +424,18 @@ export class PeerCallManager {
     }
   }
 
+  private getPeerConfig(): PeerOptions {
+    return {
+      config: {
+        iceServers: ICE_SERVERS,
+      },
+    };
+  }
+
   private generateCode(): string {
     const chars = 'abcdefghijkmnpqrstuvwxyz2345679'; // no confused chars
     let code = '';
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 9; i++) { // 9 chars = ~42 bits, hard to guess
       code += chars[Math.floor(Math.random() * chars.length)];
     }
     return code;
