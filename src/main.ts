@@ -1,5 +1,5 @@
 import { PeerCallManager } from './peer.js';
-import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check } from 'lucide';
+import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check, Settings } from 'lucide';
 import './style.css';
 
 // ─── Icon rendering (Lucide, tree-shaken) ───
@@ -17,6 +17,7 @@ const iconMap: Record<string, any> = {
   copy: Copy,
   send: Send,
   check: Check,
+  settings: Settings,
 };
 
 function renderIcon(name: string, size = 24): string {
@@ -67,6 +68,12 @@ const btnChat = $<HTMLButtonElement>('btn-chat');
 const btnLeave = $<HTMLButtonElement>('btn-leave');
 const btnCloseChat = $<HTMLButtonElement>('btn-close-chat');
 const btnCopy = $<HTMLButtonElement>('btn-copy');
+const btnSettings = $<HTMLButtonElement>('btn-settings');
+const btnCloseSettings = $<HTMLButtonElement>('btn-close-settings');
+const settingsPanel = $<HTMLDivElement>('settings-panel');
+const selectAudioInput = $<HTMLSelectElement>('select-audio-input');
+const selectAudioOutput = $<HTMLSelectElement>('select-audio-output');
+const selectVideoInput = $<HTMLSelectElement>('select-video-input');
 const formJoin = $<HTMLFormElement>('form-join');
 const inputCode = $<HTMLInputElement>('input-code');
 const formChat = $<HTMLFormElement>('form-chat');
@@ -316,6 +323,148 @@ function setupCallControls() {
     addChatMessage('self', text, true);
     chatInput.value = '';
   });
+
+  // ─── Settings panel (device selection) ───
+
+  let settingsOpen = false;
+
+  btnSettings.addEventListener('click', async () => {
+    settingsOpen = !settingsOpen;
+    settingsPanel.classList.toggle('hidden', !settingsOpen);
+    if (settingsOpen) await populateDeviceSelectors();
+  });
+
+  btnCloseSettings.addEventListener('click', () => {
+    settingsOpen = false;
+    settingsPanel.classList.add('hidden');
+  });
+
+  selectAudioInput.addEventListener('change', async () => {
+    const deviceId = selectAudioInput.value;
+    if (!deviceId) return;
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId } },
+        video: false,
+      });
+      // Replace audio track in existing stream
+      const audioTrack = newStream.getAudioTracks()[0];
+      if (localStream) {
+        localStream.getAudioTracks().forEach(t => t.stop());
+        localStream.removeTrack(localStream.getAudioTracks()[0]);
+        localStream.addTrack(audioTrack);
+        // Notify peers about the new track
+        for (const remotePeer of manager.peerList) {
+          const senders = (manager as any).peer?.connections?.get(remotePeer.id)?.[0]?.peerConnection?.getSenders();
+          if (senders) {
+            const sender = senders.find((s: any) => s.track?.kind === 'audio');
+            if (sender) sender.replaceTrack(audioTrack);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[PeerCall] Failed to switch mic:', err);
+    }
+  });
+
+  selectAudioOutput.addEventListener('change', async () => {
+    const deviceId = selectAudioOutput.value;
+    if (!deviceId) return;
+    // Set sink ID on all remote video elements
+    for (const tile of videoTiles.values()) {
+      if (typeof tile.video.setSinkId === 'function') {
+        try {
+          await (tile.video as any).setSinkId(deviceId);
+        } catch (err) {
+          console.error('[PeerCall] Failed to set speaker:', err);
+        }
+      }
+    }
+  });
+
+  selectVideoInput.addEventListener('change', async () => {
+    const deviceId = selectVideoInput.value;
+    if (!deviceId) return;
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { deviceId: { exact: deviceId } },
+      });
+      const videoTrack = newStream.getVideoTracks()[0];
+      if (localStream) {
+        localStream.getVideoTracks().forEach(t => t.stop());
+        localStream.removeTrack(localStream.getVideoTracks()[0]);
+        localStream.addTrack(videoTrack);
+        // Replace video track in existing calls
+        for (const remotePeer of manager.peerList) {
+          const senders = (manager as any).peer?.connections?.get(remotePeer.id)?.[0]?.peerConnection?.getSenders();
+          if (senders) {
+            const sender = senders.find((s: any) => s.track?.kind === 'video');
+            if (sender) sender.replaceTrack(videoTrack);
+          }
+        }
+      }
+      // Update local video preview
+      const localTile = videoTiles.get('local');
+      if (localTile) localTile.video.srcObject = localStream;
+    } catch (err) {
+      console.error('[PeerCall] Failed to switch camera:', err);
+    }
+  });
+}
+
+// ─── Settings Panel ───
+
+async function populateDeviceSelectors() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    
+    // Audio inputs (microphones)
+    const audioInputs = devices.filter(d => d.kind === 'audioinput');
+    selectAudioInput.innerHTML = '';
+    audioInputs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Microphone ${i + 1}`;
+      selectAudioInput.appendChild(opt);
+    });
+
+    // Audio outputs (speakers)
+    const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+    selectAudioOutput.innerHTML = '';
+    audioOutputs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Speaker ${i + 1}`;
+      selectAudioOutput.appendChild(opt);
+    });
+
+    // Video inputs (cameras)
+    const videoInputs = devices.filter(d => d.kind === 'videoinput');
+    selectVideoInput.innerHTML = '';
+    videoInputs.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Camera ${i + 1}`;
+      selectVideoInput.appendChild(opt);
+    });
+
+    // Select current active device
+    if (localStream) {
+      const currentAudio = localStream.getAudioTracks()[0];
+      if (currentAudio) {
+        const settings = currentAudio.getSettings();
+        if (settings.deviceId) selectAudioInput.value = settings.deviceId;
+      }
+      const currentVideo = localStream.getVideoTracks()[0];
+      if (currentVideo) {
+        const settings = currentVideo.getSettings();
+        if (settings.deviceId) selectVideoInput.value = settings.deviceId;
+      }
+    }
+  } catch (err) {
+    console.error('[PeerCall] enumerateDevices failed:', err);
+  }
 }
 
 // ─── Video Tiles ───

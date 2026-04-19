@@ -60,6 +60,29 @@
       </form>
     </div>
 
+    <div id="settings-panel" class="settings-panel hidden">
+      <div class="settings-header">
+        <span>Audio & Video</span>
+        <button id="btn-close-settings" class="btn-icon" aria-label="Close settings">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="settings-content">
+        <label>
+          <span>Microphone</span>
+          <select id="select-audio-input"></select>
+        </label>
+        <label>
+          <span>Speaker</span>
+          <select id="select-audio-output"></select>
+        </label>
+        <label>
+          <span>Camera</span>
+          <select id="select-video-input"></select>
+        </label>
+      </div>
+    </div>
+
     <div class="controls">
       <button id="btn-mic" class="control-btn" aria-label="Toggle microphone" title="Mute/Unmute">
         <i data-lucide="mic"></i>
@@ -72,6 +95,9 @@
       </button>
       <button id="btn-chat" class="control-btn" aria-label="Toggle chat" title="Chat">
         <i data-lucide="message-square"></i>
+      </button>
+      <button id="btn-settings" class="control-btn" aria-label="Audio/Video settings" title="Settings">
+        <i data-lucide="settings"></i>
       </button>
       <button id="btn-leave" class="control-btn control-btn-danger" aria-label="Hang up" title="Hang up">
         <i data-lucide="phone-off"></i>
