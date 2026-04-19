@@ -181,9 +181,9 @@ export class PeerCallManager {
 
         conn.on('error', (err) => {
           clearTimeout(connTimeout);
-          console.error('[PeerCall] joinRoom: data connection error:', err.message);
+          console.error('[PeerCall] joinRoom: data connection error:', err.type, err.message);
           this.emit({ type: 'error', message: `Connection error: ${err.message}` });
-          reject(new Error(err.message));
+          reject(new Error(`Connection error: ${err.message}`));
         });
 
         conn.on('close', () => {
@@ -196,8 +196,11 @@ export class PeerCallManager {
       this.peer.on('error', (err) => {
         clearTimeout(timeout);
         console.error('[PeerCall] joinRoom error:', err.type, err.message);
-        this.emit({ type: 'error', message: err.message });
-        reject(new Error(err.message));
+        const msg = err.type === 'peer-unavailable'
+          ? `Room "${this.roomId}" does not exist or has expired.`
+          : err.message;
+        this.emit({ type: 'error', message: msg });
+        reject(new Error(msg));
       });
 
       this.peer.on('disconnected', () => {
