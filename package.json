@@ -12,6 +12,7 @@
     "format": "prettier --write \"src/**/*.{ts,css,html,json}\""
   },
   "dependencies": {
+    "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "lucide": "^1.8.0",
     "peerjs": "^1.5.4"
   },

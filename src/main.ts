@@ -1,5 +1,21 @@
 import { PeerCallManager } from './peer.js'
-import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check, Settings } from 'lucide'
+import {
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Monitor,
+  MessageSquare,
+  PhoneOff,
+  X,
+  Copy,
+  Send,
+  Check,
+  Settings,
+  Volume2,
+  VolumeX,
+} from 'lucide'
+import { initNoiseSuppression, enableNoiseSuppression, disableNoiseSuppression } from './noise-suppression.js'
 import './style.css'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -25,6 +41,8 @@ const iconMap: Record<string, any> = {
   send: Send,
   check: Check,
   settings: Settings,
+  'volume-2': Volume2,
+  'volume-x': VolumeX,
 }
 
 function renderIcon(name: string, size = 24): string {
@@ -76,6 +94,7 @@ const btnCreate = $<HTMLButtonElement>('btn-create')
 const btnMic = $<HTMLButtonElement>('btn-mic')
 const btnCamera = $<HTMLButtonElement>('btn-camera')
 const btnScreen = $<HTMLButtonElement>('btn-screen')
+const btnNoise = $<HTMLButtonElement>('btn-noise')
 const btnChat = $<HTMLButtonElement>('btn-chat')
 const btnLeave = $<HTMLButtonElement>('btn-leave')
 const btnCloseChat = $<HTMLButtonElement>('btn-close-chat')
@@ -99,6 +118,7 @@ let localStream: MediaStream | null = null
 let micOn = true
 let cameraOn = true
 let screenSharing = false
+let noiseSuppression = false
 let chatOpen = false
 let mediaReady = false
 
@@ -363,6 +383,61 @@ function setupCallControls() {
       manager.stopScreenShare()
       screenSharing = false
       btnScreen.classList.remove('active')
+    }
+  })
+
+  // ─── Noise suppression ───
+
+  // Pre-load RNNoise WASM in the background
+  initNoiseSuppression().catch((err) => console.warn('[PeerCall] RNNoise WASM load failed:', err))
+
+  btnNoise.addEventListener('click', async () => {
+    if (!localStream) return
+
+    if (!noiseSuppression) {
+      try {
+        const processedStream = await enableNoiseSuppression(localStream)
+        const processedTrack = processedStream.getAudioTracks()[0]
+        if (processedTrack) {
+          const oldTrack = localStream.getAudioTracks()[0]
+          if (oldTrack) localStream.removeTrack(oldTrack)
+          localStream.addTrack(processedTrack)
+
+          for (const remotePeer of manager.peerList) {
+            const senders = getPeerSenders(manager, remotePeer.id)
+            if (senders) {
+              const sender = senders.find((s) => s.track?.kind === 'audio')
+              if (sender) await sender.replaceTrack(processedTrack)
+            }
+          }
+        }
+        noiseSuppression = true
+        btnNoise.classList.add('active')
+        replaceIcon(btnNoise, 'volume-2')
+      } catch (err) {
+        console.error('[PeerCall] Failed to enable noise suppression:', err)
+      }
+    } else {
+      const originalStream = disableNoiseSuppression()
+      if (originalStream) {
+        const originalTrack = originalStream.getAudioTracks()[0]
+        if (originalTrack) {
+          const processedTrack = localStream.getAudioTracks()[0]
+          if (processedTrack) localStream.removeTrack(processedTrack)
+          localStream.addTrack(originalTrack)
+
+          for (const remotePeer of manager.peerList) {
+            const senders = getPeerSenders(manager, remotePeer.id)
+            if (senders) {
+              const sender = senders.find((s) => s.track?.kind === 'audio')
+              if (sender) await sender.replaceTrack(originalTrack)
+            }
+          }
+        }
+      }
+      noiseSuppression = false
+      btnNoise.classList.remove('active')
+      replaceIcon(btnNoise, 'volume-x')
     }
   })
 
