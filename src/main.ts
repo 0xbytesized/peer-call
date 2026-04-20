@@ -92,6 +92,11 @@ let mediaReady = false;
 
 const videoTiles = new Map<string, { container: HTMLDivElement; video: HTMLVideoElement; nameTag: HTMLSpanElement; mutedInd: HTMLDivElement }>();
 
+// ─── Feature detection ───
+
+const sinkSupported = typeof HTMLMediaElement !== 'undefined'
+  && 'setSinkId' in HTMLMediaElement.prototype;
+
 // ─── Init ───
 
 function init() {
@@ -296,7 +301,6 @@ function updateLocalNameTag() {
 function setupCallControls() {
   btnMic.addEventListener('click', async () => {
     if (!mediaReady && !micOn) {
-      // Try to acquire mic (and camera if it was on)
       try {
         localStream = await manager.startMedia(cameraOn, true);
         addLocalVideo(localStream);
@@ -316,7 +320,6 @@ function setupCallControls() {
 
   btnCamera.addEventListener('click', async () => {
     if (!mediaReady && !cameraOn) {
-      // Try to acquire camera (and mic if it was on)
       try {
         localStream = await manager.startMedia(true, micOn);
         addLocalVideo(localStream);
@@ -416,13 +419,11 @@ function setupCallControls() {
         audio: { deviceId: { exact: deviceId } },
         video: false,
       });
-      // Replace audio track in existing stream
       const audioTrack = newStream.getAudioTracks()[0];
-      if (localStream) {
+      if (localStream && audioTrack) {
         localStream.getAudioTracks().forEach(t => t.stop());
         localStream.removeTrack(localStream.getAudioTracks()[0]);
         localStream.addTrack(audioTrack);
-        // Notify peers about the new track
         for (const remotePeer of manager.peerList) {
           const senders = (manager as any).peer?.connections?.get(remotePeer.id)?.[0]?.peerConnection?.getSenders();
           if (senders) {
@@ -436,20 +437,19 @@ function setupCallControls() {
     }
   });
 
-  selectAudioOutput.addEventListener('change', async () => {
-    const deviceId = selectAudioOutput.value;
-    if (!deviceId) return;
-    // Set sink ID on all remote video elements
-    for (const tile of videoTiles.values()) {
-      if (typeof tile.video.setSinkId === 'function') {
+  if (sinkSupported) {
+    selectAudioOutput.addEventListener('change', async () => {
+      const deviceId = selectAudioOutput.value;
+      if (!deviceId) return;
+      for (const tile of videoTiles.values()) {
         try {
           await (tile.video as any).setSinkId(deviceId);
         } catch (err) {
           console.error('[PeerCall] Failed to set speaker:', err);
         }
       }
-    }
-  });
+    });
+  }
 
   selectVideoInput.addEventListener('change', async () => {
     const deviceId = selectVideoInput.value;
@@ -460,11 +460,10 @@ function setupCallControls() {
         video: { deviceId: { exact: deviceId } },
       });
       const videoTrack = newStream.getVideoTracks()[0];
-      if (localStream) {
+      if (localStream && videoTrack) {
         localStream.getVideoTracks().forEach(t => t.stop());
         localStream.removeTrack(localStream.getVideoTracks()[0]);
         localStream.addTrack(videoTrack);
-        // Replace video track in existing calls
         for (const remotePeer of manager.peerList) {
           const senders = (manager as any).peer?.connections?.get(remotePeer.id)?.[0]?.peerConnection?.getSenders();
           if (senders) {
@@ -473,7 +472,6 @@ function setupCallControls() {
           }
         }
       }
-      // Update local video preview
       const localTile = videoTiles.get('local');
       if (localTile) localTile.video.srcObject = localStream;
     } catch (err) {
@@ -485,38 +483,68 @@ function setupCallControls() {
 // ─── Settings Panel ───
 
 async function populateDeviceSelectors() {
+  // On iOS Safari, device labels are empty until getUserMedia has been
+  // granted.  Re-enumerate after permission is already active.
+  // Also, iOS does not support audiooutput / setSinkId — we hide the
+  // speaker selector in that case.
+
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    
+
     // Audio inputs (microphones)
     const audioInputs = devices.filter(d => d.kind === 'audioinput');
     selectAudioInput.innerHTML = '';
-    audioInputs.forEach((d, i) => {
+    if (audioInputs.length === 0) {
       const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Microphone ${i + 1}`;
+      opt.value = '';
+      opt.textContent = 'No microphones found';
+      opt.disabled = true;
       selectAudioInput.appendChild(opt);
-    });
+    } else {
+      audioInputs.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        // Label may be empty on iOS until permission is granted;
+        // fall back to generic name
+        opt.textContent = d.label || `Microphone ${i + 1}`;
+        selectAudioInput.appendChild(opt);
+      });
+    }
 
-    // Audio outputs (speakers)
+    // Audio outputs (speakers) — not supported on iOS/Safari
     const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
-    selectAudioOutput.innerHTML = '';
-    audioOutputs.forEach((d, i) => {
-      const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Speaker ${i + 1}`;
-      selectAudioOutput.appendChild(opt);
-    });
+    const outputLabel = selectAudioOutput.closest('label');
+    if (!sinkSupported || audioOutputs.length === 0) {
+      // Hide speaker selector entirely on unsupported browsers
+      if (outputLabel) outputLabel.classList.add('hidden');
+    } else {
+      if (outputLabel) outputLabel.classList.remove('hidden');
+      selectAudioOutput.innerHTML = '';
+      audioOutputs.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Speaker ${i + 1}`;
+        selectAudioOutput.appendChild(opt);
+      });
+    }
 
     // Video inputs (cameras)
     const videoInputs = devices.filter(d => d.kind === 'videoinput');
     selectVideoInput.innerHTML = '';
-    videoInputs.forEach((d, i) => {
+    if (videoInputs.length === 0) {
       const opt = document.createElement('option');
-      opt.value = d.deviceId;
-      opt.textContent = d.label || `Camera ${i + 1}`;
+      opt.value = '';
+      opt.textContent = 'No cameras found';
+      opt.disabled = true;
       selectVideoInput.appendChild(opt);
-    });
+    } else {
+      videoInputs.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Camera ${i + 1}`;
+        selectVideoInput.appendChild(opt);
+      });
+    }
 
     // Select current active device
     if (localStream) {
@@ -637,7 +665,6 @@ function startInlineRename(nameTag: HTMLSpanElement) {
     if (newName && newName !== currentName) {
       applyRename(newName);
     } else {
-      // Revert display
       updateLocalNameTag();
     }
   };
@@ -648,7 +675,7 @@ function startInlineRename(nameTag: HTMLSpanElement) {
       e.preventDefault();
       input.blur();
     } else if (e.key === 'Escape') {
-      input.value = currentName; // cancel
+      input.value = currentName;
       input.blur();
     }
   });
