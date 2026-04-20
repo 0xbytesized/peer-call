@@ -466,6 +466,7 @@ export class PeerCallManager {
         const { name } = msg.payload as { name: string };
         const peer = this.peers.get(fromId);
         if (peer) peer.name = name;
+          this.emit({ type: 'rename', peerId: fromId, name });
         break;
       }
     }

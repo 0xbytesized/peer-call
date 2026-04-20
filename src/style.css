@@ -159,6 +159,7 @@ body {
 }
 
 .video-grid[data-count="1"] { grid-template-columns: 1fr; }
+.video-grid[data-count="1"] .video-tile { max-height: calc(100vh - 80px); }
 .video-grid[data-count="2"] { grid-template-columns: 1fr 1fr; }
 .video-grid[data-count="3"] { grid-template-columns: 1fr 1fr; }
 .video-grid[data-count="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
