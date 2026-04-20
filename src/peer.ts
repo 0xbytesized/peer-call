@@ -6,8 +6,14 @@ import Peer, { DataConnection, MediaConnection, PeerOptions } from 'peerjs';
 // for better NAT traversal behind Movistar/ISP routers.
 
 const CUSTOM_ICE_SERVERS: RTCIceServer[] = [
+  // STUN — discover public IP, fast and free
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+  // TURN — relay traffic when P2P fails (CGNAT, symmetric NAT, mobile 4G)
+  // These are needed for mobile networks where direct connectivity is blocked.
+  // Open Relay provides free TURN servers; we include TCP transport for
+  // carriers that block or throttle UDP.
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelayproject',
@@ -20,6 +26,16 @@ const CUSTOM_ICE_SERVERS: RTCIceServer[] = [
   },
   {
     urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:80?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=udp',
     username: 'openrelayproject',
     credential: 'openrelayproject',
   },
@@ -55,13 +71,16 @@ type EventHandler =
   | { type: 'rename'; peerId: string; name: string }
   | { type: 'error'; message: string };
 
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 30000;
 
 function buildPeerOptions(id?: string): PeerOptions {
   return {
     debug: 2, // Errors + Warnings — helps debug in browser console
     config: {
       iceServers: CUSTOM_ICE_SERVERS,
+      iceTransportPolicy: 'all',    // Use both STUN and TURN; needed for mobile/CGNAT
+      bundlePolicy: 'max-bundle',   // Bundle all media on one ICE connection
+      rtcpMuxPolicy: 'require',      // Required for modern browsers
       sdpSemantics: 'unified-plan',
     },
   };
@@ -136,7 +155,7 @@ export class PeerCallManager {
       });
 
       this.peer.on('disconnected', () => {
-        console.warn('[PeerCall] createRoom: disconnected from signaling server');
+        console.warn('[PeerCall] createRoom: disconnected from signaling server, reconnecting...'); this.peer?.reconnect();
       });
     });
   }
@@ -205,7 +224,7 @@ export class PeerCallManager {
       });
 
       this.peer.on('disconnected', () => {
-        console.warn('[PeerCall] joinRoom: disconnected from signaling server');
+        console.warn('[PeerCall] joinRoom: disconnected from signaling server, reconnecting...'); this.peer?.reconnect();
       });
     });
   }
