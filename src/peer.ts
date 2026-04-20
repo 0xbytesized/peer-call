@@ -52,6 +52,7 @@ type EventHandler =
   | { type: 'screen-stop'; peerId: string }
   | { type: 'audio-toggle'; peerId: string; enabled: boolean }
   | { type: 'video-toggle'; peerId: string; enabled: boolean }
+  | { type: 'rename'; peerId: string; name: string }
   | { type: 'error'; message: string };
 
 const TIMEOUT_MS = 20000;
@@ -79,8 +80,8 @@ export class PeerCallManager {
 
   private listeners: ((event: EventHandler) => void)[] = [];
 
-  constructor() {
-    this.userName = this.generateName();
+  constructor(name?: string) {
+    this.userName = name?.trim() || this.generateName();
   }
 
   on(handler: (event: EventHandler) => void) {
@@ -280,6 +281,13 @@ export class PeerCallManager {
     if (!this.localStream) return;
     this.localStream.getVideoTracks().forEach(t => { t.enabled = enabled; });
     this.broadcastData({ type: 'video-toggle', payload: { id: this.myId, enabled } });
+  }
+
+  // ─── Rename ───
+
+  rename(newName: string) {
+    this.userName = newName.trim() || this.userName;
+    this.broadcastData({ type: 'rename', payload: { name: this.userName } });
   }
 
   // ─── Chat ───

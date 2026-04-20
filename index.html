@@ -25,6 +25,10 @@
       <p class="subtitle">Video calls that never touch a server.<br/>No signup. No tracking. Just a link.</p>
 
       <div class="lobby-actions">
+        <div class="name-field">
+          <label for="input-name" class="name-label">Your name</label>
+          <input id="input-name" type="text" placeholder="e.g. David" maxlength="24" autocomplete="off" spellcheck="false" />
+        </div>
         <button id="btn-create" class="btn btn-primary">
           <i data-lucide="video"></i>
           Start a call
@@ -79,6 +83,11 @@
         <label>
           <span>Camera</span>
           <select id="select-video-input"></select>
+        </label>
+        <div class="settings-divider"></div>
+        <label>
+          <span>Display name</span>
+          <input id="input-display-name" type="text" maxlength="24" placeholder="Change your name" />
         </label>
       </div>
     </div>

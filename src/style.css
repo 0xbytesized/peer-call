@@ -490,3 +490,83 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
+
+.settings-content input[type="text"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.settings-content input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0;
+}
+
+/* ─── Lobby Name Field ─── */
+
+.name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.name-label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-align: left;
+}
+
+.name-field input {
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.name-field input:focus {
+  border-color: var(--accent);
+}
+
+.name-field input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* ─── Editable Name Tag ─── */
+
+.name-tag.editable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.name-tag.editable:hover {
+  background: rgba(99, 102, 241, 0.4);
+}
+
+.name-tag-input {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  color: white;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  outline: none;
+  text-align: center;
+  min-width: 60px;
+  max-width: 160px;
+}

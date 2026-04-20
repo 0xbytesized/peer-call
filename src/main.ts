@@ -76,6 +76,8 @@ const selectAudioOutput = $<HTMLSelectElement>('select-audio-output');
 const selectVideoInput = $<HTMLSelectElement>('select-video-input');
 const formJoin = $<HTMLFormElement>('form-join');
 const inputCode = $<HTMLInputElement>('input-code');
+const inputName = $<HTMLInputElement>('input-name');
+const inputDisplayName = $<HTMLInputElement>('input-display-name');
 const formChat = $<HTMLFormElement>('form-chat');
 
 // ─── State ───
@@ -95,31 +97,41 @@ const videoTiles = new Map<string, { container: HTMLDivElement; video: HTMLVideo
 function init() {
   initIcons();
 
+  // Restore saved name from localStorage
+  const savedName = localStorage.getItem('peercall-name');
+  if (savedName) inputName.value = savedName;
+
   const hash = window.location.hash.slice(1).trim();
   const params = new URLSearchParams(window.location.search);
   const room = params.get('room') || hash;
 
   if (room && room.length >= 4) {
     inputCode.value = room;
-    joinRoom(room);
+    joinRoom(room, getUserName());
     return;
   }
 
-  btnCreate.addEventListener('click', createRoom);
+  btnCreate.addEventListener('click', () => createRoom(getUserName()));
   formJoin.addEventListener('submit', (e) => {
     e.preventDefault();
     const code = inputCode.value.trim().toLowerCase();
-    if (code) joinRoom(code);
+    if (code) joinRoom(code, getUserName());
   });
+}
+
+function getUserName(): string {
+  const name = inputName.value.trim();
+  if (name) localStorage.setItem('peercall-name', name);
+  return name;
 }
 
 // ─── Create room ───
 
-async function createRoom() {
+async function createRoom(name: string) {
   showView('connecting');
   connectingDetail.textContent = 'Creating room...';
 
-  manager = new PeerCallManager();
+  manager = new PeerCallManager(name || undefined);
   setupManagerEvents(manager);
 
   try {
@@ -137,11 +149,11 @@ async function createRoom() {
 
 // ─── Join room ───
 
-async function joinRoom(code: string) {
+async function joinRoom(code: string, name?: string) {
   showView('connecting');
   connectingDetail.textContent = `Joining room ${code}...`;
 
-  manager = new PeerCallManager();
+  manager = new PeerCallManager(name || undefined);
   setupManagerEvents(manager);
 
   try {
@@ -219,6 +231,9 @@ function setupManagerEvents(mgr: PeerCallManager) {
       case 'audio-toggle':
         updateMuteIndicator(event.peerId, !event.enabled);
         break;
+      case 'rename':
+        updatePeerName(event.peerId, event.name);
+        break;
       case 'video-toggle':
       case 'screen-stop':
       case 'error':
@@ -244,6 +259,24 @@ function showCallView(code: string) {
 function updateMicCameraButtons() {
   replaceIcon(btnMic, micOn ? 'mic' : 'mic-off');
   replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off');
+}
+
+// ─── Rename helper ───
+
+function applyRename(newName: string) {
+  if (!newName.trim()) return;
+  manager.rename(newName.trim());
+  localStorage.setItem('peercall-name', newName.trim());
+  updateLocalNameTag();
+  // Update the settings input too
+  inputDisplayName.value = manager.myName;
+}
+
+function updateLocalNameTag() {
+  const localTile = videoTiles.get('local');
+  if (localTile) {
+    localTile.nameTag.textContent = `${manager.myName} (you)`;
+  }
 }
 
 function setupCallControls() {
@@ -324,19 +357,33 @@ function setupCallControls() {
     chatInput.value = '';
   });
 
-  // ─── Settings panel (device selection) ───
+  // ─── Settings panel (device selection + rename) ───
 
   let settingsOpen = false;
 
   btnSettings.addEventListener('click', async () => {
     settingsOpen = !settingsOpen;
     settingsPanel.classList.toggle('hidden', !settingsOpen);
-    if (settingsOpen) await populateDeviceSelectors();
+    if (settingsOpen) {
+      await populateDeviceSelectors();
+      inputDisplayName.value = manager.myName;
+    }
   });
 
   btnCloseSettings.addEventListener('click', () => {
     settingsOpen = false;
     settingsPanel.classList.add('hidden');
+  });
+
+  // Rename from settings input
+  inputDisplayName.addEventListener('change', () => {
+    applyRename(inputDisplayName.value);
+  });
+  inputDisplayName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      inputDisplayName.blur();
+    }
   });
 
   selectAudioInput.addEventListener('change', async () => {
@@ -477,6 +524,10 @@ function addLocalVideo(stream: MediaStream) {
   tile.video.muted = true;
   tile.video.playsInline = true;
   tile.video.classList.add('mirror');
+  // Make local name tag clickable for inline rename
+  tile.nameTag.classList.add('editable');
+  tile.nameTag.title = 'Click to change your name';
+  tile.nameTag.addEventListener('click', () => startInlineRename(tile.nameTag));
   videoGrid.appendChild(tile.container);
   updateGridCount();
 }
@@ -527,7 +578,9 @@ function removeVideoTile(peerId: string) {
 
 function updatePeerName(peerId: string, name: string) {
   const tile = videoTiles.get(peerId);
-  if (tile) tile.nameTag.textContent = name;
+  if (tile) {
+    tile.nameTag.textContent = peerId === 'local' ? `${name} (you)` : name;
+  }
 }
 
 function updateMuteIndicator(peerId: string, muted: boolean) {
@@ -537,6 +590,46 @@ function updateMuteIndicator(peerId: string, muted: boolean) {
 
 function updateGridCount() {
   videoGrid.dataset.count = String(videoTiles.size);
+}
+
+// ─── Inline rename (click on name tag) ───
+
+function startInlineRename(nameTag: HTMLSpanElement) {
+  const currentName = manager.myName;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'name-tag-input';
+  input.value = currentName;
+  input.maxLength = 24;
+  input.style.width = `${Math.max(60, currentName.length * 9)}px`;
+
+  nameTag.style.display = 'none';
+  nameTag.parentElement!.appendChild(input);
+  input.focus();
+  input.select();
+
+  const finishRename = () => {
+    const newName = input.value.trim();
+    input.remove();
+    nameTag.style.display = '';
+    if (newName && newName !== currentName) {
+      applyRename(newName);
+    } else {
+      // Revert display
+      updateLocalNameTag();
+    }
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === 'Escape') {
+      input.value = currentName; // cancel
+      input.blur();
+    }
+  });
 }
 
 // ─── Chat ───
