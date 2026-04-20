@@ -172,6 +172,8 @@ async function joinRoom(code: string, name?: string) {
 // ─── Media request ───
 
 async function requestMedia() {
+  // Try video+audio first, then degrade gracefully for mobile browsers
+  // where permissions or hardware constraints may prevent full access.
   try {
     localStream = await manager.startMedia(true, true);
     addLocalVideo(localStream);
@@ -179,6 +181,7 @@ async function requestMedia() {
     updateMicCameraButtons();
   } catch {
     try {
+      // No video, keep audio (e.g. camera not available on mobile)
       localStream = await manager.startMedia(false, true);
       addLocalVideo(localStream);
       cameraOn = false;
@@ -186,12 +189,23 @@ async function requestMedia() {
       updateMicCameraButtons();
       btnCamera.classList.add('off');
     } catch {
-      addNoMediaTile();
-      micOn = false;
-      cameraOn = false;
-      updateMicCameraButtons();
-      btnMic.classList.add('off');
-      btnCamera.classList.add('off');
+      try {
+        // No audio, keep video (e.g. mic permission denied on mobile)
+        localStream = await manager.startMedia(true, false);
+        addLocalVideo(localStream);
+        micOn = false;
+        mediaReady = true;
+        updateMicCameraButtons();
+        btnMic.classList.add('off');
+      } catch {
+        addNoMediaTile();
+        micOn = false;
+        cameraOn = false;
+        mediaReady = false;
+        updateMicCameraButtons();
+        btnMic.classList.add('off');
+        btnCamera.classList.add('off');
+      }
     }
   }
 }
@@ -282,12 +296,16 @@ function updateLocalNameTag() {
 function setupCallControls() {
   btnMic.addEventListener('click', async () => {
     if (!mediaReady && !micOn) {
+      // Try to acquire mic (and camera if it was on)
       try {
         localStream = await manager.startMedia(cameraOn, true);
         addLocalVideo(localStream);
         mediaReady = true;
         micOn = true;
-      } catch { return; }
+      } catch (err) {
+        console.error('[PeerCall] Could not enable mic:', err);
+        return;
+      }
     } else {
       micOn = !micOn;
     }
@@ -298,12 +316,16 @@ function setupCallControls() {
 
   btnCamera.addEventListener('click', async () => {
     if (!mediaReady && !cameraOn) {
+      // Try to acquire camera (and mic if it was on)
       try {
         localStream = await manager.startMedia(true, micOn);
         addLocalVideo(localStream);
         mediaReady = true;
         cameraOn = true;
-      } catch { return; }
+      } catch (err) {
+        console.error('[PeerCall] Could not enable camera:', err);
+        return;
+      }
     } else {
       cameraOn = !cameraOn;
       manager.toggleVideo(cameraOn);

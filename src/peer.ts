@@ -213,10 +213,34 @@ export class PeerCallManager {
   // ─── Media ───
 
   async startMedia(video = true, audio = true): Promise<MediaStream> {
-    this.localStream = await navigator.mediaDevices.getUserMedia({
-      video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-      audio: audio ? { echoCancellation: true, noiseSuppression: true } : false,
-    });
+    // Build constraints — mobile browsers need specific handling.
+    // Some mobile browsers reject advanced constraints entirely, so we
+    // use simple boolean constraints as fallback.
+    const audioConstraints: boolean | MediaTrackConstraints = audio
+      ? { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true } }
+      : false;
+    const videoConstraints: boolean | MediaTrackConstraints = video
+      ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'user' } }
+      : false;
+
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: videoConstraints,
+      });
+    } catch (firstError: unknown) {
+      // If requesting both video+audio fails on mobile, try simpler constraints.
+      // Many mobile browsers reject advanced audio constraints or simultaneous
+      // video+audio requests from a permission-prompt context.
+      const err = firstError as DOMException;
+      if (err.name === 'NotAllowedError') throw firstError; // User denied — rethrow
+
+      // Try again with minimal constraints (no advanced audio settings)
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: audio ? true : false,
+        video: video ? { facingMode: 'user' } : false,
+      });
+    }
 
     for (const [peerId, remotePeer] of this.peers) {
       this.callPeer(peerId, remotePeer.conn);
