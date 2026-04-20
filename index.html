@@ -1,135 +1,156 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PeerCall — Video calls without a server</title>
-  <meta name="description" content="Free video calls powered by WebRTC. No signup, no backend, no tracking. Open a link and call." />
-  <meta name="theme-color" content="#0f0f0f" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="stylesheet" href="/src/style.css" />
-</head>
-<body>
-  <!-- LOBBY -->
-  <div id="lobby" class="view">
-    <div class="lobby-content">
-      <div class="lobby-logo">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-          <rect width="48" height="48" rx="12" fill="#6366f1"/>
-          <path d="M16 20a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" fill="white"/>
-          <path d="M24 20a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" fill="white" fill-opacity=".7"/>
-          <path d="M14 28c0-2.2 1.8-4 4-4h12c2.2 0 4 1.8 4 4v4c0 2.2-1.8 4-4 4H18c-2.2 0-4-1.8-4-4v-4Z" fill="white" fill-opacity=".85"/>
-        </svg>
-      </div>
-      <h1>PeerCall</h1>
-      <p class="subtitle">Video calls that never touch a server.<br/>No signup. No tracking. Just a link.</p>
-
-      <div class="lobby-actions">
-        <div class="name-field">
-          <label for="input-name" class="name-label">Your name</label>
-          <input id="input-name" type="text" placeholder="e.g. David" maxlength="24" autocomplete="off" spellcheck="false" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PeerCall — Video calls without a server</title>
+    <meta
+      name="description"
+      content="Free video calls powered by WebRTC. No signup, no backend, no tracking. Open a link and call."
+    />
+    <meta name="theme-color" content="#0f0f0f" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- LOBBY -->
+    <div id="lobby" class="view">
+      <div class="lobby-content">
+        <div class="lobby-logo">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect width="48" height="48" rx="12" fill="#6366f1" />
+            <path d="M16 20a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" fill="white" />
+            <path d="M24 20a4 4 0 1 1 8 0 4 4 0 0 1-8 0Z" fill="white" fill-opacity=".7" />
+            <path
+              d="M14 28c0-2.2 1.8-4 4-4h12c2.2 0 4 1.8 4 4v4c0 2.2-1.8 4-4 4H18c-2.2 0-4-1.8-4-4v-4Z"
+              fill="white"
+              fill-opacity=".85"
+            />
+          </svg>
         </div>
-        <button id="btn-create" class="btn btn-primary">
-          <i data-lucide="video"></i>
-          Start a call
-        </button>
-        <div class="divider"><span>or join with a code</span></div>
-        <form id="form-join" class="join-form">
-          <input id="input-code" type="text" placeholder="e.g. k7m9x2w4p" maxlength="12" autocomplete="off" spellcheck="false" />
-          <button type="submit" class="btn btn-secondary">Join</button>
+        <h1>PeerCall</h1>
+        <p class="subtitle">Video calls that never touch a server.<br />No signup. No tracking. Just a link.</p>
+
+        <div class="lobby-actions">
+          <div class="name-field">
+            <label for="input-name" class="name-label">Your name</label>
+            <input
+              id="input-name"
+              type="text"
+              placeholder="e.g. David"
+              maxlength="24"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <button id="btn-create" class="btn btn-primary">
+            <i data-lucide="video"></i>
+            Start a call
+          </button>
+          <div class="divider"><span>or join with a code</span></div>
+          <form id="form-join" class="join-form">
+            <input
+              id="input-code"
+              type="text"
+              placeholder="e.g. k7m9x2w4p"
+              maxlength="12"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="submit" class="btn btn-secondary">Join</button>
+          </form>
+        </div>
+
+        <p class="lobby-footer">P2P · End-to-end encrypted · Open source</p>
+      </div>
+    </div>
+
+    <!-- CALL VIEW -->
+    <div id="call" class="view hidden">
+      <div id="video-grid" class="video-grid"></div>
+
+      <div id="chat-panel" class="chat-panel hidden">
+        <div class="chat-header">
+          <span>Chat</span>
+          <button id="btn-close-chat" class="btn-icon" aria-label="Close chat">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <form id="form-chat" class="chat-form">
+          <input id="input-chat" type="text" placeholder="Type a message..." autocomplete="off" />
+          <button type="submit" class="btn btn-small">
+            <i data-lucide="send"></i>
+          </button>
         </form>
       </div>
 
-      <p class="lobby-footer">P2P · End-to-end encrypted · Open source</p>
-    </div>
-  </div>
+      <div id="settings-panel" class="settings-panel hidden">
+        <div class="settings-header">
+          <span>Audio & Video</span>
+          <button id="btn-close-settings" class="btn-icon" aria-label="Close settings">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="settings-content">
+          <label>
+            <span>Microphone</span>
+            <select id="select-audio-input"></select>
+          </label>
+          <label>
+            <span>Speaker</span>
+            <select id="select-audio-output"></select>
+          </label>
+          <label>
+            <span>Camera</span>
+            <select id="select-video-input"></select>
+          </label>
+          <div class="settings-divider"></div>
+          <label>
+            <span>Display name</span>
+            <input id="input-display-name" type="text" maxlength="24" placeholder="Change your name" />
+          </label>
+        </div>
+      </div>
 
-  <!-- CALL VIEW -->
-  <div id="call" class="view hidden">
-    <div id="video-grid" class="video-grid"></div>
-
-    <div id="chat-panel" class="chat-panel hidden">
-      <div class="chat-header">
-        <span>Chat</span>
-        <button id="btn-close-chat" class="btn-icon" aria-label="Close chat">
-          <i data-lucide="x"></i>
+      <div class="controls">
+        <button id="btn-mic" class="control-btn" aria-label="Toggle microphone" title="Mute/Unmute">
+          <i data-lucide="mic"></i>
+        </button>
+        <button id="btn-camera" class="control-btn" aria-label="Toggle camera" title="Camera on/off">
+          <i data-lucide="video"></i>
+        </button>
+        <button id="btn-screen" class="control-btn" aria-label="Share screen" title="Share screen">
+          <i data-lucide="monitor"></i>
+        </button>
+        <button id="btn-chat" class="control-btn" aria-label="Toggle chat" title="Chat">
+          <i data-lucide="message-square"></i>
+        </button>
+        <button id="btn-settings" class="control-btn" aria-label="Audio/Video settings" title="Settings">
+          <i data-lucide="settings"></i>
+        </button>
+        <button id="btn-leave" class="control-btn control-btn-danger" aria-label="Hang up" title="Hang up">
+          <i data-lucide="phone-off"></i>
         </button>
       </div>
-      <div id="chat-messages" class="chat-messages"></div>
-      <form id="form-chat" class="chat-form">
-        <input id="input-chat" type="text" placeholder="Type a message..." autocomplete="off" />
-        <button type="submit" class="btn btn-small">
-          <i data-lucide="send"></i>
-        </button>
-      </form>
-    </div>
 
-    <div id="settings-panel" class="settings-panel hidden">
-      <div class="settings-header">
-        <span>Audio & Video</span>
-        <button id="btn-close-settings" class="btn-icon" aria-label="Close settings">
-          <i data-lucide="x"></i>
+      <div id="room-info" class="room-info">
+        <span id="room-code"></span>
+        <button id="btn-copy" class="btn-icon" title="Copy link">
+          <i data-lucide="copy"></i>
         </button>
       </div>
-      <div class="settings-content">
-        <label>
-          <span>Microphone</span>
-          <select id="select-audio-input"></select>
-        </label>
-        <label>
-          <span>Speaker</span>
-          <select id="select-audio-output"></select>
-        </label>
-        <label>
-          <span>Camera</span>
-          <select id="select-video-input"></select>
-        </label>
-        <div class="settings-divider"></div>
-        <label>
-          <span>Display name</span>
-          <input id="input-display-name" type="text" maxlength="24" placeholder="Change your name" />
-        </label>
+    </div>
+
+    <!-- CONNECTING OVERLAY -->
+    <div id="connecting" class="view hidden">
+      <div class="connecting-content">
+        <div class="spinner"></div>
+        <p>Connecting...</p>
+        <p class="connecting-detail" id="connecting-detail"></p>
       </div>
     </div>
 
-    <div class="controls">
-      <button id="btn-mic" class="control-btn" aria-label="Toggle microphone" title="Mute/Unmute">
-        <i data-lucide="mic"></i>
-      </button>
-      <button id="btn-camera" class="control-btn" aria-label="Toggle camera" title="Camera on/off">
-        <i data-lucide="video"></i>
-      </button>
-      <button id="btn-screen" class="control-btn" aria-label="Share screen" title="Share screen">
-        <i data-lucide="monitor"></i>
-      </button>
-      <button id="btn-chat" class="control-btn" aria-label="Toggle chat" title="Chat">
-        <i data-lucide="message-square"></i>
-      </button>
-      <button id="btn-settings" class="control-btn" aria-label="Audio/Video settings" title="Settings">
-        <i data-lucide="settings"></i>
-      </button>
-      <button id="btn-leave" class="control-btn control-btn-danger" aria-label="Hang up" title="Hang up">
-        <i data-lucide="phone-off"></i>
-      </button>
-    </div>
-
-    <div id="room-info" class="room-info">
-      <span id="room-code"></span>
-      <button id="btn-copy" class="btn-icon" title="Copy link">
-        <i data-lucide="copy"></i>
-      </button>
-    </div>
-  </div>
-
-  <!-- CONNECTING OVERLAY -->
-  <div id="connecting" class="view hidden">
-    <div class="connecting-content">
-      <div class="spinner"></div>
-      <p>Connecting...</p>
-      <p class="connecting-detail" id="connecting-detail"></p>
-    </div>
-  </div>
-
-  <script type="module" src="/src/main.ts"></script>
-</body>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>

@@ -1,4 +1,4 @@
-import Peer, { DataConnection, MediaConnection, PeerOptions } from 'peerjs';
+import Peer, { DataConnection, MediaConnection, PeerOptions } from 'peerjs'
 
 // ─── ICE Servers ───
 // STUN discovers public IPs; TURN relays traffic when P2P fails (CGNAT, symmetric NAT).
@@ -39,23 +39,23 @@ const CUSTOM_ICE_SERVERS: RTCIceServer[] = [
     username: 'openrelayproject',
     credential: 'openrelayproject',
   },
-];
+]
 
 // ─── Types ───
 
 export interface PeerMessage {
-  type: 'join' | 'peer-list' | 'chat' | 'screen-start' | 'screen-stop' | 'rename' | 'audio-toggle' | 'video-toggle';
-  payload: unknown;
+  type: 'join' | 'peer-list' | 'chat' | 'screen-start' | 'screen-stop' | 'rename' | 'audio-toggle' | 'video-toggle'
+  payload: unknown
 }
 
 export interface RemotePeer {
-  id: string;
-  name: string;
-  conn: DataConnection;
-  call?: MediaConnection;
-  stream?: MediaStream;
-  audioEnabled: boolean;
-  videoEnabled: boolean;
+  id: string
+  name: string
+  conn: DataConnection
+  call?: MediaConnection
+  stream?: MediaStream
+  audioEnabled: boolean
+  videoEnabled: boolean
 }
 
 type EventHandler =
@@ -69,164 +69,175 @@ type EventHandler =
   | { type: 'audio-toggle'; peerId: string; enabled: boolean }
   | { type: 'video-toggle'; peerId: string; enabled: boolean }
   | { type: 'rename'; peerId: string; name: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
 
-const TIMEOUT_MS = 30000;
+const TIMEOUT_MS = 30000
 
-function buildPeerOptions(id?: string): PeerOptions {
+function buildPeerOptions(): PeerOptions {
   return {
     debug: 2, // Errors + Warnings — helps debug in browser console
     config: {
       iceServers: CUSTOM_ICE_SERVERS,
-      iceTransportPolicy: 'all',    // Use both STUN and TURN; needed for mobile/CGNAT
-      bundlePolicy: 'max-bundle',   // Bundle all media on one ICE connection
-      rtcpMuxPolicy: 'require',      // Required for modern browsers
+      iceTransportPolicy: 'all', // Use both STUN and TURN; needed for mobile/CGNAT
+      bundlePolicy: 'max-bundle', // Bundle all media on one ICE connection
+      rtcpMuxPolicy: 'require', // Required for modern browsers
       sdpSemantics: 'unified-plan',
     },
-  };
+  }
 }
 
 // ─── Peer Manager ───
 
 export class PeerCallManager {
-  private peer: Peer | null = null;
-  private peers: Map<string, RemotePeer> = new Map();
-  private localStream: MediaStream | null = null;
-  private screenStream: MediaStream | null = null;
-  private isHost = false;
-  private roomId = '';
-  private userName = '';
+  private peer: Peer | null = null
+  private peers: Map<string, RemotePeer> = new Map()
+  private localStream: MediaStream | null = null
+  private screenStream: MediaStream | null = null
+  private isHost = false
+  private roomId = ''
+  private userName = ''
 
-  private listeners: ((event: EventHandler) => void)[] = [];
+  private listeners: ((event: EventHandler) => void)[] = []
 
   constructor(name?: string) {
-    this.userName = name?.trim() || this.generateName();
+    this.userName = name?.trim() || this.generateName()
   }
 
   on(handler: (event: EventHandler) => void) {
-    this.listeners.push(handler);
+    this.listeners.push(handler)
   }
 
   private emit(event: EventHandler) {
-    for (const h of this.listeners) h(event);
+    for (const h of this.listeners) h(event)
   }
 
-  get myName() { return this.userName; }
-  get myId() { return this.peer?.id ?? ''; }
-  get peerList() { return [...this.peers.values()]; }
-  get roomCode() { return this.roomId; }
-  get isHosting() { return this.isHost; }
+  get myName() {
+    return this.userName
+  }
+  get myId() {
+    return this.peer?.id ?? ''
+  }
+  get peerList() {
+    return [...this.peers.values()]
+  }
+  get roomCode() {
+    return this.roomId
+  }
+  get isHosting() {
+    return this.isHost
+  }
 
   // ─── Create / Join ───
 
   async createRoom(): Promise<string> {
-    this.roomId = this.generateCode();
-    const peerId = `pcall-${this.roomId}`;
-    this.isHost = true;
+    this.roomId = this.generateCode()
+    const peerId = `pcall-${this.roomId}`
+    this.isHost = true
 
-    console.log(`[PeerCall] createRoom: peerId=${peerId}`);
+    console.log(`[PeerCall] createRoom: peerId=${peerId}`)
 
     return new Promise((resolve, reject) => {
-      const opts = buildPeerOptions();
-      console.log('[PeerCall] Creating Peer with options:', JSON.stringify(opts));
-      this.peer = new Peer(peerId, opts);
+      const opts = buildPeerOptions()
+      console.log('[PeerCall] Creating Peer with options:', JSON.stringify(opts))
+      this.peer = new Peer(peerId, opts)
 
       const timeout = setTimeout(() => {
-        console.error('[PeerCall] createRoom timeout after', TIMEOUT_MS, 'ms');
-        this.peer?.destroy();
-        this.peer = null;
-        reject(new Error('Timed out creating room. Check your connection.'));
-      }, TIMEOUT_MS);
+        console.error('[PeerCall] createRoom timeout after', TIMEOUT_MS, 'ms')
+        this.peer?.destroy()
+        this.peer = null
+        reject(new Error('Timed out creating room. Check your connection.'))
+      }, TIMEOUT_MS)
 
       this.peer.on('open', (id) => {
-        clearTimeout(timeout);
-        console.log('[PeerCall] createRoom open, id=', id);
-        resolve(this.roomId);
-      });
+        clearTimeout(timeout)
+        console.log('[PeerCall] createRoom open, id=', id)
+        resolve(this.roomId)
+      })
 
-      this.peer.on('connection', (conn) => this.handleIncomingConnection(conn));
-      this.peer.on('call', (call) => this.handleIncomingCall(call));
+      this.peer.on('connection', (conn) => this.handleIncomingConnection(conn))
+      this.peer.on('call', (call) => this.handleIncomingCall(call))
 
       this.peer.on('error', (err) => {
-        clearTimeout(timeout);
-        console.error('[PeerCall] createRoom error:', err.type, err.message);
-        this.emit({ type: 'error', message: err.message });
-        reject(new Error(err.message));
-      });
+        clearTimeout(timeout)
+        console.error('[PeerCall] createRoom error:', err.type, err.message)
+        this.emit({ type: 'error', message: err.message })
+        reject(new Error(err.message))
+      })
 
       this.peer.on('disconnected', () => {
-        console.warn('[PeerCall] createRoom: disconnected from signaling server, reconnecting...'); this.peer?.reconnect();
-      });
-    });
+        console.warn('[PeerCall] createRoom: disconnected from signaling server, reconnecting...')
+        this.peer?.reconnect()
+      })
+    })
   }
 
   async joinRoom(code: string): Promise<void> {
-    this.roomId = code.trim().toLowerCase();
-    this.isHost = false;
-    const hostId = `pcall-${this.roomId}`;
+    this.roomId = code.trim().toLowerCase()
+    this.isHost = false
+    const hostId = `pcall-${this.roomId}`
 
-    console.log(`[PeerCall] joinRoom: hostId=${hostId}`);
+    console.log(`[PeerCall] joinRoom: hostId=${hostId}`)
 
     return new Promise((resolve, reject) => {
-      const opts = buildPeerOptions();
+      const opts = buildPeerOptions()
       // No ID provided = PeerJS generates one
-      this.peer = new Peer(opts);
+      this.peer = new Peer(opts)
 
       const timeout = setTimeout(() => {
-        console.error('[PeerCall] joinRoom timeout after', TIMEOUT_MS, 'ms');
-        this.peer?.destroy();
-        this.peer = null;
-        reject(new Error('Timed out joining room. The room may not exist.'));
-      }, TIMEOUT_MS);
+        console.error('[PeerCall] joinRoom timeout after', TIMEOUT_MS, 'ms')
+        this.peer?.destroy()
+        this.peer = null
+        reject(new Error('Timed out joining room. The room may not exist.'))
+      }, TIMEOUT_MS)
 
       this.peer.on('open', (myId) => {
-        clearTimeout(timeout);
-        console.log(`[PeerCall] joinRoom open, myId=${myId}, connecting to host=${hostId}`);
+        clearTimeout(timeout)
+        console.log(`[PeerCall] joinRoom open, myId=${myId}, connecting to host=${hostId}`)
 
-        const conn = this.peer!.connect(hostId, { reliable: true });
+        const conn = this.peer!.connect(hostId, { reliable: true })
 
         const connTimeout = setTimeout(() => {
-          console.error('[PeerCall] joinRoom: data connection to host timed out');
-          conn.close();
-          reject(new Error('Could not connect to room. The room may not exist.'));
-        }, TIMEOUT_MS);
+          console.error('[PeerCall] joinRoom: data connection to host timed out')
+          conn.close()
+          reject(new Error('Could not connect to room. The room may not exist.'))
+        }, TIMEOUT_MS)
 
         conn.on('open', () => {
-          clearTimeout(connTimeout);
-          console.log('[PeerCall] joinRoom: data connection open to host');
-          this.setupDataConnection(conn, hostId);
-          conn.send({ type: 'join', payload: { name: this.userName, id: myId } } satisfies PeerMessage);
-          resolve();
-        });
+          clearTimeout(connTimeout)
+          console.log('[PeerCall] joinRoom: data connection open to host')
+          this.setupDataConnection(conn, hostId)
+          conn.send({ type: 'join', payload: { name: this.userName, id: myId } } satisfies PeerMessage)
+          resolve()
+        })
 
         conn.on('error', (err) => {
-          clearTimeout(connTimeout);
-          console.error('[PeerCall] joinRoom: data connection error:', err.type, err.message);
-          this.emit({ type: 'error', message: `Connection error: ${err.message}` });
-          reject(new Error(`Connection error: ${err.message}`));
-        });
+          clearTimeout(connTimeout)
+          console.error('[PeerCall] joinRoom: data connection error:', err.type, err.message)
+          this.emit({ type: 'error', message: `Connection error: ${err.message}` })
+          reject(new Error(`Connection error: ${err.message}`))
+        })
 
         conn.on('close', () => {
-          clearTimeout(connTimeout);
-        });
-      });
+          clearTimeout(connTimeout)
+        })
+      })
 
-      this.peer.on('call', (call) => this.handleIncomingCall(call));
+      this.peer.on('call', (call) => this.handleIncomingCall(call))
 
       this.peer.on('error', (err) => {
-        clearTimeout(timeout);
-        console.error('[PeerCall] joinRoom error:', err.type, err.message);
-        const msg = err.type === 'peer-unavailable'
-          ? `Room "${this.roomId}" does not exist or has expired.`
-          : err.message;
-        this.emit({ type: 'error', message: msg });
-        reject(new Error(msg));
-      });
+        clearTimeout(timeout)
+        console.error('[PeerCall] joinRoom error:', err.type, err.message)
+        const msg =
+          err.type === 'peer-unavailable' ? `Room "${this.roomId}" does not exist or has expired.` : err.message
+        this.emit({ type: 'error', message: msg })
+        reject(new Error(msg))
+      })
 
       this.peer.on('disconnected', () => {
-        console.warn('[PeerCall] joinRoom: disconnected from signaling server, reconnecting...'); this.peer?.reconnect();
-      });
-    });
+        console.warn('[PeerCall] joinRoom: disconnected from signaling server, reconnecting...')
+        this.peer?.reconnect()
+      })
+    })
   }
 
   // ─── Media ───
@@ -237,35 +248,35 @@ export class PeerCallManager {
     // use simple boolean constraints as fallback.
     const audioConstraints: boolean | MediaTrackConstraints = audio
       ? { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true } }
-      : false;
+      : false
     const videoConstraints: boolean | MediaTrackConstraints = video
       ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'user' } }
-      : false;
+      : false
 
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints,
         video: videoConstraints,
-      });
+      })
     } catch (firstError: unknown) {
       // If requesting both video+audio fails on mobile, try simpler constraints.
       // Many mobile browsers reject advanced audio constraints or simultaneous
       // video+audio requests from a permission-prompt context.
-      const err = firstError as DOMException;
-      if (err.name === 'NotAllowedError') throw firstError; // User denied — rethrow
+      const err = firstError as DOMException
+      if (err.name === 'NotAllowedError') throw firstError // User denied — rethrow
 
       // Try again with minimal constraints (no advanced audio settings)
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: audio ? true : false,
         video: video ? { facingMode: 'user' } : false,
-      });
+      })
     }
 
-    for (const [peerId, remotePeer] of this.peers) {
-      this.callPeer(peerId, remotePeer.conn);
+    for (const [peerId] of this.peers) {
+      this.callPeer(peerId)
     }
 
-    return this.localStream;
+    return this.localStream
   }
 
   async startScreenShare(): Promise<MediaStream | null> {
@@ -273,113 +284,117 @@ export class PeerCallManager {
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true,
-      });
+      })
 
-      this.broadcastData({ type: 'screen-start', payload: { id: this.myId } });
+      this.broadcastData({ type: 'screen-start', payload: { id: this.myId } })
 
       for (const remotePeer of this.peers.values()) {
         if (remotePeer.call) {
-          const screenTrack = this.screenStream.getVideoTracks()[0];
+          const screenTrack = this.screenStream.getVideoTracks()[0]
           if (screenTrack) {
-            const sender = remotePeer.call.peerConnection.getSenders().find(s => s.track?.kind === 'video');
-            if (sender) sender.replaceTrack(screenTrack);
+            const sender = remotePeer.call.peerConnection.getSenders().find((s) => s.track?.kind === 'video')
+            if (sender) sender.replaceTrack(screenTrack)
           }
         }
       }
 
       this.screenStream.getVideoTracks()[0].onended = () => {
-        this.stopScreenShare();
-      };
+        this.stopScreenShare()
+      }
 
-      return this.screenStream;
+      return this.screenStream
     } catch {
-      return null;
+      return null
     }
   }
 
   stopScreenShare() {
-    if (!this.screenStream) return;
+    if (!this.screenStream) return
 
-    this.broadcastData({ type: 'screen-stop', payload: { id: this.myId } });
+    this.broadcastData({ type: 'screen-stop', payload: { id: this.myId } })
 
-    const cameraTrack = this.localStream?.getVideoTracks()[0];
+    const cameraTrack = this.localStream?.getVideoTracks()[0]
     for (const remotePeer of this.peers.values()) {
       if (remotePeer.call && cameraTrack) {
-        const sender = remotePeer.call.peerConnection.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) sender.replaceTrack(cameraTrack);
+        const sender = remotePeer.call.peerConnection.getSenders().find((s) => s.track?.kind === 'video')
+        if (sender) sender.replaceTrack(cameraTrack)
       }
     }
 
-    this.screenStream.getTracks().forEach(t => t.stop());
-    this.screenStream = null;
+    this.screenStream.getTracks().forEach((t) => t.stop())
+    this.screenStream = null
   }
 
   toggleAudio(enabled: boolean) {
-    if (!this.localStream) return;
-    this.localStream.getAudioTracks().forEach(t => { t.enabled = enabled; });
-    this.broadcastData({ type: 'audio-toggle', payload: { id: this.myId, enabled } });
+    if (!this.localStream) return
+    this.localStream.getAudioTracks().forEach((t) => {
+      t.enabled = enabled
+    })
+    this.broadcastData({ type: 'audio-toggle', payload: { id: this.myId, enabled } })
   }
 
   toggleVideo(enabled: boolean) {
-    if (!this.localStream) return;
-    this.localStream.getVideoTracks().forEach(t => { t.enabled = enabled; });
-    this.broadcastData({ type: 'video-toggle', payload: { id: this.myId, enabled } });
+    if (!this.localStream) return
+    this.localStream.getVideoTracks().forEach((t) => {
+      t.enabled = enabled
+    })
+    this.broadcastData({ type: 'video-toggle', payload: { id: this.myId, enabled } })
   }
 
   // ─── Rename ───
 
   rename(newName: string) {
-    this.userName = newName.trim() || this.userName;
-    this.broadcastData({ type: 'rename', payload: { name: this.userName } });
+    this.userName = newName.trim() || this.userName
+    this.broadcastData({ type: 'rename', payload: { name: this.userName } })
   }
 
   // ─── Chat ───
 
   sendChat(text: string) {
-    this.broadcastData({ type: 'chat', payload: { name: this.userName, text } });
+    this.broadcastData({ type: 'chat', payload: { name: this.userName, text } })
   }
 
   // ─── Disconnect ───
 
   leave() {
     for (const remotePeer of this.peers.values()) {
-      remotePeer.conn.close();
-      remotePeer.call?.close();
+      remotePeer.conn.close()
+      remotePeer.call?.close()
     }
-    this.localStream?.getTracks().forEach(t => t.stop());
-    this.screenStream?.getTracks().forEach(t => t.stop());
-    this.peer?.destroy();
-    this.peers.clear();
+    this.localStream?.getTracks().forEach((t) => t.stop())
+    this.screenStream?.getTracks().forEach((t) => t.stop())
+    this.peer?.destroy()
+    this.peers.clear()
   }
 
   // ─── Internal ───
 
   private handleIncomingConnection(conn: DataConnection) {
-    const peerId = conn.peer;
-    console.log('[PeerCall] Incoming connection from:', peerId);
+    const peerId = conn.peer
+    console.log('[PeerCall] Incoming connection from:', peerId)
 
     conn.on('open', () => {
-      console.log('[PeerCall] Incoming data connection open from:', peerId);
-      this.setupDataConnection(conn, peerId);
+      console.log('[PeerCall] Incoming data connection open from:', peerId)
+      this.setupDataConnection(conn, peerId)
 
       if (this.isHost) {
         const existingPeers = [...this.peers.values()]
-          .filter(p => p.id !== peerId) // Don't include the newcomer in their own list
-          .map(p => ({ id: p.id, name: p.name }));
-        conn.send({ type: 'peer-list', payload: existingPeers } satisfies PeerMessage);
-        this.broadcastData({ type: 'join', payload: { id: peerId, name: '...' } });
+          .filter((p) => p.id !== peerId) // Don't include the newcomer in their own list
+          .map((p) => ({ id: p.id, name: p.name }))
+        conn.send({ type: 'peer-list', payload: existingPeers } satisfies PeerMessage)
+        this.broadcastData({ type: 'join', payload: { id: peerId, name: '...' } })
       }
 
       if (this.localStream) {
-        this.callPeer(peerId, conn);
+        this.callPeer(peerId)
       }
-    });
+    })
   }
 
   private setupDataConnection(conn: DataConnection, peerId: string) {
     // Don't overwrite existing connection unless this is a new one
-    const existing = this.peers.get(peerId);
-    if (existing && existing.conn === conn) return;
+    const existing = this.peers.get(peerId)
+    if (existing && existing.conn === conn) return
 
     const remotePeer: RemotePeer = {
       id: peerId,
@@ -387,167 +402,176 @@ export class PeerCallManager {
       conn,
       audioEnabled: true,
       videoEnabled: true,
-    };
-    this.peers.set(peerId, remotePeer);
+    }
+    this.peers.set(peerId, remotePeer)
 
     conn.on('data', (raw) => {
-      const msg = raw as PeerMessage;
-      this.handleMessage(peerId, msg);
-    });
+      const msg = raw as PeerMessage
+      this.handleMessage(peerId, msg)
+    })
 
     conn.on('close', () => {
-      this.peers.delete(peerId);
-      this.emit({ type: 'peer-left', peerId });
-    });
+      this.peers.delete(peerId)
+      this.emit({ type: 'peer-left', peerId })
+    })
 
     conn.on('error', () => {
-      this.peers.delete(peerId);
-      this.emit({ type: 'peer-left', peerId });
-    });
+      this.peers.delete(peerId)
+      this.emit({ type: 'peer-left', peerId })
+    })
   }
 
   private handleMessage(fromId: string, msg: PeerMessage) {
     switch (msg.type) {
       case 'join': {
-        const { name, id } = msg.payload as { name: string; id: string };
-        const peer = this.peers.get(fromId);
-        if (peer) peer.name = name;
-        this.emit({ type: 'peer-joined', peer: peer ?? { id: fromId, name: name, conn: this.peers.get(fromId)?.conn!, audioEnabled: true, videoEnabled: true } });
+        const { name, id } = msg.payload as { name: string; id: string }
+        const peer = this.peers.get(fromId)
+        if (peer) peer.name = name
+        this.emit({
+          type: 'peer-joined',
+          peer: peer ?? {
+            id: fromId,
+            name: name,
+            conn: this.peers.get(fromId)!.conn,
+            audioEnabled: true,
+            videoEnabled: true,
+          },
+        })
 
         // Non-host peers connect to each other directly
         if (!this.isHost && id && id !== this.myId && !this.peers.has(id)) {
-          this.connectToPeer(id);
+          this.connectToPeer(id)
         }
-        break;
+        break
       }
 
       case 'peer-list': {
-        const peers = msg.payload as { id: string; name: string }[];
+        const peers = msg.payload as { id: string; name: string }[]
         for (const p of peers) {
           if (p.id !== this.myId) {
-            this.connectToPeer(p.id);
+            this.connectToPeer(p.id)
           }
         }
-        break;
+        break
       }
 
       case 'chat': {
-        const { name, text } = msg.payload as { name: string; text: string };
-        const peer = this.peers.get(fromId);
-        if (peer) peer.name = name;
-        this.emit({ type: 'chat', peerId: fromId, text });
-        break;
+        const { name, text } = msg.payload as { name: string; text: string }
+        const peer = this.peers.get(fromId)
+        if (peer) peer.name = name
+        this.emit({ type: 'chat', peerId: fromId, text })
+        break
       }
 
       case 'audio-toggle': {
-        const { enabled } = msg.payload as { enabled: boolean };
-        const peer = this.peers.get(fromId);
-        if (peer) peer.audioEnabled = enabled;
-        this.emit({ type: 'audio-toggle', peerId: fromId, enabled });
-        break;
+        const { enabled } = msg.payload as { enabled: boolean }
+        const peer = this.peers.get(fromId)
+        if (peer) peer.audioEnabled = enabled
+        this.emit({ type: 'audio-toggle', peerId: fromId, enabled })
+        break
       }
 
       case 'video-toggle': {
-        const { enabled } = msg.payload as { enabled: boolean };
-        const peer = this.peers.get(fromId);
-        if (peer) peer.videoEnabled = enabled;
-        this.emit({ type: 'video-toggle', peerId: fromId, enabled });
-        break;
+        const { enabled } = msg.payload as { enabled: boolean }
+        const peer = this.peers.get(fromId)
+        if (peer) peer.videoEnabled = enabled
+        this.emit({ type: 'video-toggle', peerId: fromId, enabled })
+        break
       }
 
       case 'screen-start':
-        break;
+        break
 
       case 'screen-stop':
-        this.emit({ type: 'screen-stop', peerId: fromId });
-        break;
+        this.emit({ type: 'screen-stop', peerId: fromId })
+        break
 
       case 'rename': {
-        const { name } = msg.payload as { name: string };
-        const peer = this.peers.get(fromId);
-        if (peer) peer.name = name;
-          this.emit({ type: 'rename', peerId: fromId, name });
-        break;
+        const { name } = msg.payload as { name: string }
+        const peer = this.peers.get(fromId)
+        if (peer) peer.name = name
+        this.emit({ type: 'rename', peerId: fromId, name })
+        break
       }
     }
   }
 
   private connectToPeer(peerId: string) {
-    if (!this.peer || peerId === this.myId) return;
-    if (this.peers.has(peerId)) return;
+    if (!this.peer || peerId === this.myId) return
+    if (this.peers.has(peerId)) return
 
-    console.log('[PeerCall] Connecting to peer:', peerId);
-    const conn = this.peer.connect(peerId, { reliable: true });
+    console.log('[PeerCall] Connecting to peer:', peerId)
+    const conn = this.peer.connect(peerId, { reliable: true })
     conn.on('open', () => {
-      conn.send({ type: 'join', payload: { name: this.userName, id: this.myId } } satisfies PeerMessage);
-      this.setupDataConnection(conn, peerId);
+      conn.send({ type: 'join', payload: { name: this.userName, id: this.myId } } satisfies PeerMessage)
+      this.setupDataConnection(conn, peerId)
       if (this.localStream) {
-        this.callPeer(peerId, conn);
+        this.callPeer(peerId)
       }
-    });
+    })
   }
 
-  private callPeer(peerId: string, _conn: DataConnection) {
-    if (!this.localStream || !this.peer) return;
+  private callPeer(peerId: string) {
+    if (!this.localStream || !this.peer) return
 
-    const call = this.peer.call(peerId, this.localStream);
-    if (!call) return;
+    const call = this.peer.call(peerId, this.localStream)
+    if (!call) return
 
-    const remotePeer = this.peers.get(peerId);
-    if (remotePeer) remotePeer.call = call;
+    const remotePeer = this.peers.get(peerId)
+    if (remotePeer) remotePeer.call = call
 
     call.on('stream', (stream) => {
-      this.emit({ type: 'stream', peerId, stream });
-    });
+      this.emit({ type: 'stream', peerId, stream })
+    })
 
     call.on('close', () => {
-      this.emit({ type: 'stream-removed', peerId });
-    });
+      this.emit({ type: 'stream-removed', peerId })
+    })
   }
 
   private handleIncomingCall(call: MediaConnection) {
-    console.log('[PeerCall] Incoming call from:', call.peer);
+    console.log('[PeerCall] Incoming call from:', call.peer)
 
     if (this.localStream) {
-      call.answer(this.localStream);
+      call.answer(this.localStream)
     } else {
-      call.answer();
+      call.answer()
     }
 
-    const remotePeer = this.peers.get(call.peer);
-    if (remotePeer) remotePeer.call = call;
+    const remotePeer = this.peers.get(call.peer)
+    if (remotePeer) remotePeer.call = call
 
     call.on('stream', (stream) => {
-      this.emit({ type: 'stream', peerId: call.peer, stream });
-    });
+      this.emit({ type: 'stream', peerId: call.peer, stream })
+    })
 
     call.on('close', () => {
-      this.emit({ type: 'stream-removed', peerId: call.peer });
-    });
+      this.emit({ type: 'stream-removed', peerId: call.peer })
+    })
   }
 
   private broadcastData(msg: PeerMessage) {
     for (const remotePeer of this.peers.values()) {
       if (remotePeer.conn.open) {
-        remotePeer.conn.send(msg);
+        remotePeer.conn.send(msg)
       }
     }
   }
 
   private generateCode(): string {
-    const chars = 'abcdefghijkmnpqrstuvwxyz2345679';
-    let code = '';
+    const chars = 'abcdefghijkmnpqrstuvwxyz2345679'
+    let code = ''
     for (let i = 0; i < 9; i++) {
-      code += chars[Math.floor(Math.random() * chars.length)];
+      code += chars[Math.floor(Math.random() * chars.length)]
     }
-    return code;
+    return code
   }
 
   private generateName(): string {
-    const adjectives = ['quick', 'brave', 'calm', 'keen', 'warm', 'bold', 'cool', 'fast', 'kind', 'wise'];
-    const animals = ['fox', 'owl', 'cat', 'dog', 'bee', 'elk', 'ram', 'fin', 'jay', 'yak'];
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const animal = animals[Math.floor(Math.random() * animals.length)];
-    return `${adj}-${animal}`;
+    const adjectives = ['quick', 'brave', 'calm', 'keen', 'warm', 'bold', 'cool', 'fast', 'kind', 'wise']
+    const animals = ['fox', 'owl', 'cat', 'dog', 'bee', 'elk', 'ram', 'fin', 'jay', 'yak']
+    const adj = adjectives[Math.floor(Math.random() * adjectives.length)]
+    const animal = animals[Math.floor(Math.random() * animals.length)]
+    return `${adj}-${animal}`
   }
 }

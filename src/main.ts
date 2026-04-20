@@ -1,6 +1,13 @@
-import { PeerCallManager } from './peer.js';
-import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check, Settings } from 'lucide';
-import './style.css';
+import { PeerCallManager } from './peer.js'
+import { Mic, MicOff, Video, VideoOff, Monitor, MessageSquare, PhoneOff, X, Copy, Send, Check, Settings } from 'lucide'
+import './style.css'
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// ─── PeerJS internals access (not typed in peerjs) ───
+
+const getPeerSenders = (mgr: PeerCallManager, peerId: string) =>
+  (mgr as any).peer?.connections?.get(peerId)?.[0]?.peerConnection?.getSenders() as RTCRtpSender[] | undefined
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ─── Icon rendering (Lucide, tree-shaken) ───
 
@@ -18,159 +25,166 @@ const iconMap: Record<string, any> = {
   send: Send,
   check: Check,
   settings: Settings,
-};
+}
 
 function renderIcon(name: string, size = 24): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const children: any = iconMap[name];
-  if (!children) return '';
-  const svgContent = children.map((child: any) => {
-    const tag = child[0];
-    const attrs = child[1];
-    const attrsStr = Object.entries(attrs).map(([k, v]: [string, any]) => `${k}="${v}"`).join(' ');
-    return `<${tag} ${attrsStr}/>`;
-  }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svgContent}</svg>`;
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const children: any = iconMap[name]
+  if (!children) return ''
+  const svgContent = children
+    .map((child: any) => {
+      const tag = child[0]
+      const attrs = child[1]
+      const attrsStr = Object.entries(attrs)
+        .map(([k, v]: [string, any]) => `${k}="${v}"`)
+        .join(' ')
+      return `<${tag} ${attrsStr}/>`
+    })
+    .join('')
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svgContent}</svg>`
 }
 
 function initIcons() {
-  document.querySelectorAll('[data-lucide]').forEach(el => {
-    const name = el.getAttribute('data-lucide') || '';
+  document.querySelectorAll('[data-lucide]').forEach((el) => {
+    const name = el.getAttribute('data-lucide') || ''
     if (name && iconMap[name]) {
-      el.outerHTML = renderIcon(name);
+      el.outerHTML = renderIcon(name)
     }
-  });
+  })
 }
 
 function replaceIcon(btn: HTMLButtonElement, name: string) {
-  btn.querySelectorAll('svg').forEach(s => s.remove());
-  btn.insertAdjacentHTML('beforeend', renderIcon(name));
+  btn.querySelectorAll('svg').forEach((s) => s.remove())
+  btn.insertAdjacentHTML('beforeend', renderIcon(name))
 }
 
 // ─── DOM refs ───
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
-const lobby = $<HTMLDivElement>('lobby');
-const callView = $<HTMLDivElement>('call');
-const connecting = $<HTMLDivElement>('connecting');
-const connectingDetail = $<HTMLParagraphElement>('connecting-detail');
-const videoGrid = $<HTMLDivElement>('video-grid');
-const chatPanel = $<HTMLDivElement>('chat-panel');
-const chatMessages = $<HTMLDivElement>('chat-messages');
-const chatInput = $<HTMLInputElement>('input-chat');
-const roomCode = $<HTMLSpanElement>('room-code');
-const btnCreate = $<HTMLButtonElement>('btn-create');
-const btnMic = $<HTMLButtonElement>('btn-mic');
-const btnCamera = $<HTMLButtonElement>('btn-camera');
-const btnScreen = $<HTMLButtonElement>('btn-screen');
-const btnChat = $<HTMLButtonElement>('btn-chat');
-const btnLeave = $<HTMLButtonElement>('btn-leave');
-const btnCloseChat = $<HTMLButtonElement>('btn-close-chat');
-const btnCopy = $<HTMLButtonElement>('btn-copy');
-const btnSettings = $<HTMLButtonElement>('btn-settings');
-const btnCloseSettings = $<HTMLButtonElement>('btn-close-settings');
-const settingsPanel = $<HTMLDivElement>('settings-panel');
-const selectAudioInput = $<HTMLSelectElement>('select-audio-input');
-const selectAudioOutput = $<HTMLSelectElement>('select-audio-output');
-const selectVideoInput = $<HTMLSelectElement>('select-video-input');
-const formJoin = $<HTMLFormElement>('form-join');
-const inputCode = $<HTMLInputElement>('input-code');
-const inputName = $<HTMLInputElement>('input-name');
-const inputDisplayName = $<HTMLInputElement>('input-display-name');
-const formChat = $<HTMLFormElement>('form-chat');
+const lobby = $<HTMLDivElement>('lobby')
+const callView = $<HTMLDivElement>('call')
+const connecting = $<HTMLDivElement>('connecting')
+const connectingDetail = $<HTMLParagraphElement>('connecting-detail')
+const videoGrid = $<HTMLDivElement>('video-grid')
+const chatPanel = $<HTMLDivElement>('chat-panel')
+const chatMessages = $<HTMLDivElement>('chat-messages')
+const chatInput = $<HTMLInputElement>('input-chat')
+const roomCode = $<HTMLSpanElement>('room-code')
+const btnCreate = $<HTMLButtonElement>('btn-create')
+const btnMic = $<HTMLButtonElement>('btn-mic')
+const btnCamera = $<HTMLButtonElement>('btn-camera')
+const btnScreen = $<HTMLButtonElement>('btn-screen')
+const btnChat = $<HTMLButtonElement>('btn-chat')
+const btnLeave = $<HTMLButtonElement>('btn-leave')
+const btnCloseChat = $<HTMLButtonElement>('btn-close-chat')
+const btnCopy = $<HTMLButtonElement>('btn-copy')
+const btnSettings = $<HTMLButtonElement>('btn-settings')
+const btnCloseSettings = $<HTMLButtonElement>('btn-close-settings')
+const settingsPanel = $<HTMLDivElement>('settings-panel')
+const selectAudioInput = $<HTMLSelectElement>('select-audio-input')
+const selectAudioOutput = $<HTMLSelectElement>('select-audio-output')
+const selectVideoInput = $<HTMLSelectElement>('select-video-input')
+const formJoin = $<HTMLFormElement>('form-join')
+const inputCode = $<HTMLInputElement>('input-code')
+const inputName = $<HTMLInputElement>('input-name')
+const inputDisplayName = $<HTMLInputElement>('input-display-name')
+const formChat = $<HTMLFormElement>('form-chat')
 
 // ─── State ───
 
-let manager: PeerCallManager;
-let localStream: MediaStream | null = null;
-let micOn = true;
-let cameraOn = true;
-let screenSharing = false;
-let chatOpen = false;
-let mediaReady = false;
+let manager: PeerCallManager
+let localStream: MediaStream | null = null
+let micOn = true
+let cameraOn = true
+let screenSharing = false
+let chatOpen = false
+let mediaReady = false
 
-const videoTiles = new Map<string, { container: HTMLDivElement; video: HTMLVideoElement; nameTag: HTMLSpanElement; mutedInd: HTMLDivElement }>();
+const videoTiles = new Map<
+  string,
+  { container: HTMLDivElement; video: HTMLVideoElement; nameTag: HTMLSpanElement; mutedInd: HTMLDivElement }
+>()
 
 // ─── Feature detection ───
 
-const sinkSupported = typeof HTMLMediaElement !== 'undefined'
-  && 'setSinkId' in HTMLMediaElement.prototype;
+const sinkSupported = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
 
 // ─── Init ───
 
 function init() {
-  initIcons();
+  initIcons()
 
   // Restore saved name from localStorage
-  const savedName = localStorage.getItem('peercall-name');
-  if (savedName) inputName.value = savedName;
+  const savedName = localStorage.getItem('peercall-name')
+  if (savedName) inputName.value = savedName
 
-  const hash = window.location.hash.slice(1).trim();
-  const params = new URLSearchParams(window.location.search);
-  const room = params.get('room') || hash;
+  const hash = window.location.hash.slice(1).trim()
+  const params = new URLSearchParams(window.location.search)
+  const room = params.get('room') || hash
 
   if (room && room.length >= 4) {
-    inputCode.value = room;
-    joinRoom(room, getUserName());
-    return;
+    inputCode.value = room
+    joinRoom(room, getUserName())
+    return
   }
 
-  btnCreate.addEventListener('click', () => createRoom(getUserName()));
+  btnCreate.addEventListener('click', () => createRoom(getUserName()))
   formJoin.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const code = inputCode.value.trim().toLowerCase();
-    if (code) joinRoom(code, getUserName());
-  });
+    e.preventDefault()
+    const code = inputCode.value.trim().toLowerCase()
+    if (code) joinRoom(code, getUserName())
+  })
 }
 
 function getUserName(): string {
-  const name = inputName.value.trim();
-  if (name) localStorage.setItem('peercall-name', name);
-  return name;
+  const name = inputName.value.trim()
+  if (name) localStorage.setItem('peercall-name', name)
+  return name
 }
 
 // ─── Create room ───
 
 async function createRoom(name: string) {
-  showView('connecting');
-  connectingDetail.textContent = 'Creating room...';
+  showView('connecting')
+  connectingDetail.textContent = 'Creating room...'
 
-  manager = new PeerCallManager(name || undefined);
-  setupManagerEvents(manager);
+  manager = new PeerCallManager(name || undefined)
+  setupManagerEvents(manager)
 
   try {
-    const code = await manager.createRoom();
-    window.history.replaceState(null, '', `#${code}`);
-    showCallView(code);
-    await requestMedia();
+    const code = await manager.createRoom()
+    window.history.replaceState(null, '', `#${code}`)
+    showCallView(code)
+    await requestMedia()
   } catch (err: unknown) {
-    showView('lobby');
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    alert('Could not create room: ' + message);
-    console.error('[PeerCall] createRoom failed:', err);
+    showView('lobby')
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    alert('Could not create room: ' + message)
+    console.error('[PeerCall] createRoom failed:', err)
   }
 }
 
 // ─── Join room ───
 
 async function joinRoom(code: string, name?: string) {
-  showView('connecting');
-  connectingDetail.textContent = `Joining room ${code}...`;
+  showView('connecting')
+  connectingDetail.textContent = `Joining room ${code}...`
 
-  manager = new PeerCallManager(name || undefined);
-  setupManagerEvents(manager);
+  manager = new PeerCallManager(name || undefined)
+  setupManagerEvents(manager)
 
   try {
-    await manager.joinRoom(code);
-    window.history.replaceState(null, '', `#${code}`);
-    showCallView(code);
-    await requestMedia();
+    await manager.joinRoom(code)
+    window.history.replaceState(null, '', `#${code}`)
+    showCallView(code)
+    await requestMedia()
   } catch (err: unknown) {
-    showView('lobby');
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    alert('Could not join room: ' + message);
-    console.error('[PeerCall] joinRoom failed:', err);
+    showView('lobby')
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    alert('Could not join room: ' + message)
+    console.error('[PeerCall] joinRoom failed:', err)
   }
 }
 
@@ -180,51 +194,52 @@ async function requestMedia() {
   // Try video+audio first, then degrade gracefully for mobile browsers
   // where permissions or hardware constraints may prevent full access.
   try {
-    localStream = await manager.startMedia(true, true);
-    addLocalVideo(localStream);
-    mediaReady = true;
-    updateMicCameraButtons();
+    localStream = await manager.startMedia(true, true)
+    addLocalVideo(localStream)
+    mediaReady = true
+    updateMicCameraButtons()
   } catch {
     try {
       // No video, keep audio (e.g. camera not available on mobile)
-      localStream = await manager.startMedia(false, true);
-      addLocalVideo(localStream);
-      cameraOn = false;
-      mediaReady = true;
-      updateMicCameraButtons();
-      btnCamera.classList.add('off');
+      localStream = await manager.startMedia(false, true)
+      addLocalVideo(localStream)
+      cameraOn = false
+      mediaReady = true
+      updateMicCameraButtons()
+      btnCamera.classList.add('off')
     } catch {
       try {
         // No audio, keep video (e.g. mic permission denied on mobile)
-        localStream = await manager.startMedia(true, false);
-        addLocalVideo(localStream);
-        micOn = false;
-        mediaReady = true;
-        updateMicCameraButtons();
-        btnMic.classList.add('off');
+        localStream = await manager.startMedia(true, false)
+        addLocalVideo(localStream)
+        micOn = false
+        mediaReady = true
+        updateMicCameraButtons()
+        btnMic.classList.add('off')
       } catch {
-        addNoMediaTile();
-        micOn = false;
-        cameraOn = false;
-        mediaReady = false;
-        updateMicCameraButtons();
-        btnMic.classList.add('off');
-        btnCamera.classList.add('off');
+        addNoMediaTile()
+        micOn = false
+        cameraOn = false
+        mediaReady = false
+        updateMicCameraButtons()
+        btnMic.classList.add('off')
+        btnCamera.classList.add('off')
       }
     }
   }
 }
 
 function addNoMediaTile() {
-  const tile = createVideoTile('local', manager.myName, true);
-  const placeholder = document.createElement('div');
-  placeholder.className = 'no-camera-placeholder';
-  placeholder.textContent = '📷';
-  placeholder.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#1a1a2e;z-index:1;';
-  tile.container.style.position = 'relative';
-  tile.container.insertBefore(placeholder, tile.video);
-  videoGrid.appendChild(tile.container);
-  updateGridCount();
+  const tile = createVideoTile('local', manager.myName, true)
+  const placeholder = document.createElement('div')
+  placeholder.className = 'no-camera-placeholder'
+  placeholder.textContent = '📷'
+  placeholder.style.cssText =
+    'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#1a1a2e;z-index:1;'
+  tile.container.style.position = 'relative'
+  tile.container.insertBefore(placeholder, tile.video)
+  videoGrid.appendChild(tile.container)
+  updateGridCount()
 }
 
 // ─── Manager events ───
@@ -233,68 +248,68 @@ function setupManagerEvents(mgr: PeerCallManager) {
   mgr.on((event) => {
     switch (event.type) {
       case 'peer-joined':
-        updatePeerName(event.peer.id, event.peer.name);
-        break;
+        updatePeerName(event.peer.id, event.peer.name)
+        break
       case 'peer-left':
-        removeVideoTile(event.peerId);
-        break;
+        removeVideoTile(event.peerId)
+        break
       case 'stream':
-        addRemoteVideo(event.peerId, event.stream);
-        break;
+        addRemoteVideo(event.peerId, event.stream)
+        break
       case 'stream-removed':
-        removeVideoTile(event.peerId);
-        break;
+        removeVideoTile(event.peerId)
+        break
       case 'chat':
-        addChatMessage(event.peerId, event.text, false);
-        break;
+        addChatMessage(event.peerId, event.text, false)
+        break
       case 'audio-toggle':
-        updateMuteIndicator(event.peerId, !event.enabled);
-        break;
+        updateMuteIndicator(event.peerId, !event.enabled)
+        break
       case 'rename':
-        updatePeerName(event.peerId, event.name);
-        break;
+        updatePeerName(event.peerId, event.name)
+        break
       case 'video-toggle':
       case 'screen-stop':
       case 'error':
-        break;
+        break
     }
-  });
+  })
 }
 
 // ─── UI Helpers ───
 
 function showView(name: 'lobby' | 'call' | 'connecting') {
-  lobby.classList.toggle('hidden', name !== 'lobby');
-  callView.classList.toggle('hidden', name !== 'call');
-  connecting.classList.toggle('hidden', name !== 'connecting');
+  lobby.classList.toggle('hidden', name !== 'lobby')
+  callView.classList.toggle('hidden', name !== 'call')
+  connecting.classList.toggle('hidden', name !== 'connecting')
 }
 
 function showCallView(code: string) {
-  roomCode.textContent = code;
-  showView('call');
-  setupCallControls();
+  roomCode.textContent = code
+  showView('call')
+  setupCallControls()
 }
 
 function updateMicCameraButtons() {
-  replaceIcon(btnMic, micOn ? 'mic' : 'mic-off');
-  replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off');
+  replaceIcon(btnMic, micOn ? 'mic' : 'mic-off')
+  replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off')
 }
 
 // ─── Rename helper ───
 
 function applyRename(newName: string) {
-  if (!newName.trim()) return;
-  manager.rename(newName.trim());
-  localStorage.setItem('peercall-name', newName.trim());
-  updateLocalNameTag();
+  if (!newName.trim()) return
+  manager.rename(newName.trim())
+  localStorage.setItem('peercall-name', newName.trim())
+  updateLocalNameTag()
   // Update the settings input too
-  inputDisplayName.value = manager.myName;
+  inputDisplayName.value = manager.myName
 }
 
 function updateLocalNameTag() {
-  const localTile = videoTiles.get('local');
+  const localTile = videoTiles.get('local')
   if (localTile) {
-    localTile.nameTag.textContent = `${manager.myName} (you)`;
+    localTile.nameTag.textContent = `${manager.myName} (you)`
   }
 }
 
@@ -302,182 +317,185 @@ function setupCallControls() {
   btnMic.addEventListener('click', async () => {
     if (!mediaReady && !micOn) {
       try {
-        localStream = await manager.startMedia(cameraOn, true);
-        addLocalVideo(localStream);
-        mediaReady = true;
-        micOn = true;
+        localStream = await manager.startMedia(cameraOn, true)
+        addLocalVideo(localStream)
+        mediaReady = true
+        micOn = true
       } catch (err) {
-        console.error('[PeerCall] Could not enable mic:', err);
-        return;
+        console.error('[PeerCall] Could not enable mic:', err)
+        return
       }
     } else {
-      micOn = !micOn;
+      micOn = !micOn
     }
-    manager.toggleAudio(micOn);
-    btnMic.classList.toggle('off', !micOn);
-    replaceIcon(btnMic, micOn ? 'mic' : 'mic-off');
-  });
+    manager.toggleAudio(micOn)
+    btnMic.classList.toggle('off', !micOn)
+    replaceIcon(btnMic, micOn ? 'mic' : 'mic-off')
+  })
 
   btnCamera.addEventListener('click', async () => {
     if (!mediaReady && !cameraOn) {
       try {
-        localStream = await manager.startMedia(true, micOn);
-        addLocalVideo(localStream);
-        mediaReady = true;
-        cameraOn = true;
+        localStream = await manager.startMedia(true, micOn)
+        addLocalVideo(localStream)
+        mediaReady = true
+        cameraOn = true
       } catch (err) {
-        console.error('[PeerCall] Could not enable camera:', err);
-        return;
+        console.error('[PeerCall] Could not enable camera:', err)
+        return
       }
     } else {
-      cameraOn = !cameraOn;
-      manager.toggleVideo(cameraOn);
+      cameraOn = !cameraOn
+      manager.toggleVideo(cameraOn)
     }
-    btnCamera.classList.toggle('off', !cameraOn);
-    replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off');
-  });
+    btnCamera.classList.toggle('off', !cameraOn)
+    replaceIcon(btnCamera, cameraOn ? 'video' : 'video-off')
+  })
 
   btnScreen.addEventListener('click', async () => {
     if (!screenSharing) {
-      const stream = await manager.startScreenShare();
-      if (stream) { screenSharing = true; btnScreen.classList.add('active'); }
+      const stream = await manager.startScreenShare()
+      if (stream) {
+        screenSharing = true
+        btnScreen.classList.add('active')
+      }
     } else {
-      manager.stopScreenShare();
-      screenSharing = false;
-      btnScreen.classList.remove('active');
+      manager.stopScreenShare()
+      screenSharing = false
+      btnScreen.classList.remove('active')
     }
-  });
+  })
 
   btnChat.addEventListener('click', () => {
-    chatOpen = !chatOpen;
-    chatPanel.classList.toggle('hidden', !chatOpen);
-    if (chatOpen) chatInput.focus();
-  });
+    chatOpen = !chatOpen
+    chatPanel.classList.toggle('hidden', !chatOpen)
+    if (chatOpen) chatInput.focus()
+  })
 
   btnCloseChat.addEventListener('click', () => {
-    chatOpen = false;
-    chatPanel.classList.add('hidden');
-  });
+    chatOpen = false
+    chatPanel.classList.add('hidden')
+  })
 
   btnLeave.addEventListener('click', () => {
-    manager.leave();
-    window.location.hash = '';
-    window.location.reload();
-  });
+    manager.leave()
+    window.location.hash = ''
+    window.location.reload()
+  })
 
   btnCopy.addEventListener('click', () => {
-    const url = `${window.location.origin}${window.location.pathname}#${manager.roomCode}`;
+    const url = `${window.location.origin}${window.location.pathname}#${manager.roomCode}`
     navigator.clipboard.writeText(url).then(() => {
-      replaceIcon(btnCopy, 'check');
-      setTimeout(() => replaceIcon(btnCopy, 'copy'), 2000);
-    });
-  });
+      replaceIcon(btnCopy, 'check')
+      setTimeout(() => replaceIcon(btnCopy, 'copy'), 2000)
+    })
+  })
 
   formChat.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const text = chatInput.value.trim();
-    if (!text) return;
-    manager.sendChat(text);
-    addChatMessage('self', text, true);
-    chatInput.value = '';
-  });
+    e.preventDefault()
+    const text = chatInput.value.trim()
+    if (!text) return
+    manager.sendChat(text)
+    addChatMessage('self', text, true)
+    chatInput.value = ''
+  })
 
   // ─── Settings panel (device selection + rename) ───
 
-  let settingsOpen = false;
+  let settingsOpen = false
 
   btnSettings.addEventListener('click', async () => {
-    settingsOpen = !settingsOpen;
-    settingsPanel.classList.toggle('hidden', !settingsOpen);
+    settingsOpen = !settingsOpen
+    settingsPanel.classList.toggle('hidden', !settingsOpen)
     if (settingsOpen) {
-      await populateDeviceSelectors();
-      inputDisplayName.value = manager.myName;
+      await populateDeviceSelectors()
+      inputDisplayName.value = manager.myName
     }
-  });
+  })
 
   btnCloseSettings.addEventListener('click', () => {
-    settingsOpen = false;
-    settingsPanel.classList.add('hidden');
-  });
+    settingsOpen = false
+    settingsPanel.classList.add('hidden')
+  })
 
   // Rename from settings input
   inputDisplayName.addEventListener('change', () => {
-    applyRename(inputDisplayName.value);
-  });
+    applyRename(inputDisplayName.value)
+  })
   inputDisplayName.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      e.preventDefault();
-      inputDisplayName.blur();
+      e.preventDefault()
+      inputDisplayName.blur()
     }
-  });
+  })
 
   selectAudioInput.addEventListener('change', async () => {
-    const deviceId = selectAudioInput.value;
-    if (!deviceId) return;
+    const deviceId = selectAudioInput.value
+    if (!deviceId) return
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: { exact: deviceId } },
         video: false,
-      });
-      const audioTrack = newStream.getAudioTracks()[0];
+      })
+      const audioTrack = newStream.getAudioTracks()[0]
       if (localStream && audioTrack) {
-        localStream.getAudioTracks().forEach(t => t.stop());
-        localStream.removeTrack(localStream.getAudioTracks()[0]);
-        localStream.addTrack(audioTrack);
+        localStream.getAudioTracks().forEach((t) => t.stop())
+        localStream.removeTrack(localStream.getAudioTracks()[0])
+        localStream.addTrack(audioTrack)
         for (const remotePeer of manager.peerList) {
-          const senders = (manager as any).peer?.connections?.get(remotePeer.id)?.[0]?.peerConnection?.getSenders();
+          const senders = getPeerSenders(manager, remotePeer.id)
           if (senders) {
-            const sender = senders.find((s: any) => s.track?.kind === 'audio');
-            if (sender) sender.replaceTrack(audioTrack);
+            const sender = senders.find((s) => s.track?.kind === 'audio')
+            if (sender) sender.replaceTrack(audioTrack)
           }
         }
       }
     } catch (err) {
-      console.error('[PeerCall] Failed to switch mic:', err);
+      console.error('[PeerCall] Failed to switch mic:', err)
     }
-  });
+  })
 
   if (sinkSupported) {
     selectAudioOutput.addEventListener('change', async () => {
-      const deviceId = selectAudioOutput.value;
-      if (!deviceId) return;
+      const deviceId = selectAudioOutput.value
+      if (!deviceId) return
       for (const tile of videoTiles.values()) {
         try {
-          await (tile.video as any).setSinkId(deviceId);
+          await (tile.video as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId)
         } catch (err) {
-          console.error('[PeerCall] Failed to set speaker:', err);
+          console.error('[PeerCall] Failed to set speaker:', err)
         }
       }
-    });
+    })
   }
 
   selectVideoInput.addEventListener('change', async () => {
-    const deviceId = selectVideoInput.value;
-    if (!deviceId) return;
+    const deviceId = selectVideoInput.value
+    if (!deviceId) return
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { deviceId: { exact: deviceId } },
-      });
-      const videoTrack = newStream.getVideoTracks()[0];
+      })
+      const videoTrack = newStream.getVideoTracks()[0]
       if (localStream && videoTrack) {
-        localStream.getVideoTracks().forEach(t => t.stop());
-        localStream.removeTrack(localStream.getVideoTracks()[0]);
-        localStream.addTrack(videoTrack);
+        localStream.getVideoTracks().forEach((t) => t.stop())
+        localStream.removeTrack(localStream.getVideoTracks()[0])
+        localStream.addTrack(videoTrack)
         for (const remotePeer of manager.peerList) {
-          const senders = (manager as any).peer?.connections?.get(remotePeer.id)?.[0]?.peerConnection?.getSenders();
+          const senders = getPeerSenders(manager, remotePeer.id)
           if (senders) {
-            const sender = senders.find((s: any) => s.track?.kind === 'video');
-            if (sender) sender.replaceTrack(videoTrack);
+            const sender = senders.find((s) => s.track?.kind === 'video')
+            if (sender) sender.replaceTrack(videoTrack)
           }
         }
       }
-      const localTile = videoTiles.get('local');
-      if (localTile) localTile.video.srcObject = localStream;
+      const localTile = videoTiles.get('local')
+      if (localTile) localTile.video.srcObject = localStream
     } catch (err) {
-      console.error('[PeerCall] Failed to switch camera:', err);
+      console.error('[PeerCall] Failed to switch camera:', err)
     }
-  });
+  })
 }
 
 // ─── Settings Panel ───
@@ -489,228 +507,232 @@ async function populateDeviceSelectors() {
   // speaker selector in that case.
 
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
+    const devices = await navigator.mediaDevices.enumerateDevices()
 
     // Audio inputs (microphones)
-    const audioInputs = devices.filter(d => d.kind === 'audioinput');
-    selectAudioInput.innerHTML = '';
+    const audioInputs = devices.filter((d) => d.kind === 'audioinput')
+    selectAudioInput.innerHTML = ''
     if (audioInputs.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'No microphones found';
-      opt.disabled = true;
-      selectAudioInput.appendChild(opt);
+      const opt = document.createElement('option')
+      opt.value = ''
+      opt.textContent = 'No microphones found'
+      opt.disabled = true
+      selectAudioInput.appendChild(opt)
     } else {
       audioInputs.forEach((d, i) => {
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
+        const opt = document.createElement('option')
+        opt.value = d.deviceId
         // Label may be empty on iOS until permission is granted;
         // fall back to generic name
-        opt.textContent = d.label || `Microphone ${i + 1}`;
-        selectAudioInput.appendChild(opt);
-      });
+        opt.textContent = d.label || `Microphone ${i + 1}`
+        selectAudioInput.appendChild(opt)
+      })
     }
 
     // Audio outputs (speakers) — not supported on iOS/Safari
-    const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
-    const outputLabel = selectAudioOutput.closest('label');
+    const audioOutputs = devices.filter((d) => d.kind === 'audiooutput')
+    const outputLabel = selectAudioOutput.closest('label')
     if (!sinkSupported || audioOutputs.length === 0) {
       // Hide speaker selector entirely on unsupported browsers
-      if (outputLabel) outputLabel.classList.add('hidden');
+      if (outputLabel) outputLabel.classList.add('hidden')
     } else {
-      if (outputLabel) outputLabel.classList.remove('hidden');
-      selectAudioOutput.innerHTML = '';
+      if (outputLabel) outputLabel.classList.remove('hidden')
+      selectAudioOutput.innerHTML = ''
       audioOutputs.forEach((d, i) => {
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `Speaker ${i + 1}`;
-        selectAudioOutput.appendChild(opt);
-      });
+        const opt = document.createElement('option')
+        opt.value = d.deviceId
+        opt.textContent = d.label || `Speaker ${i + 1}`
+        selectAudioOutput.appendChild(opt)
+      })
     }
 
     // Video inputs (cameras)
-    const videoInputs = devices.filter(d => d.kind === 'videoinput');
-    selectVideoInput.innerHTML = '';
+    const videoInputs = devices.filter((d) => d.kind === 'videoinput')
+    selectVideoInput.innerHTML = ''
     if (videoInputs.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'No cameras found';
-      opt.disabled = true;
-      selectVideoInput.appendChild(opt);
+      const opt = document.createElement('option')
+      opt.value = ''
+      opt.textContent = 'No cameras found'
+      opt.disabled = true
+      selectVideoInput.appendChild(opt)
     } else {
       videoInputs.forEach((d, i) => {
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `Camera ${i + 1}`;
-        selectVideoInput.appendChild(opt);
-      });
+        const opt = document.createElement('option')
+        opt.value = d.deviceId
+        opt.textContent = d.label || `Camera ${i + 1}`
+        selectVideoInput.appendChild(opt)
+      })
     }
 
     // Select current active device
     if (localStream) {
-      const currentAudio = localStream.getAudioTracks()[0];
+      const currentAudio = localStream.getAudioTracks()[0]
       if (currentAudio) {
-        const settings = currentAudio.getSettings();
-        if (settings.deviceId) selectAudioInput.value = settings.deviceId;
+        const settings = currentAudio.getSettings()
+        if (settings.deviceId) selectAudioInput.value = settings.deviceId
       }
-      const currentVideo = localStream.getVideoTracks()[0];
+      const currentVideo = localStream.getVideoTracks()[0]
       if (currentVideo) {
-        const settings = currentVideo.getSettings();
-        if (settings.deviceId) selectVideoInput.value = settings.deviceId;
+        const settings = currentVideo.getSettings()
+        if (settings.deviceId) selectVideoInput.value = settings.deviceId
       }
     }
   } catch (err) {
-    console.error('[PeerCall] enumerateDevices failed:', err);
+    console.error('[PeerCall] enumerateDevices failed:', err)
   }
 }
 
 // ─── Video Tiles ───
 
 function addLocalVideo(stream: MediaStream) {
-  removeVideoTile('local');
-  const tile = createVideoTile('local', manager.myName, true);
-  tile.video.srcObject = stream;
-  tile.video.autoplay = true;
-  tile.video.muted = true;
-  tile.video.playsInline = true;
-  tile.video.classList.add('mirror');
+  removeVideoTile('local')
+  const tile = createVideoTile('local', manager.myName, true)
+  tile.video.srcObject = stream
+  tile.video.autoplay = true
+  tile.video.muted = true
+  tile.video.playsInline = true
+  tile.video.classList.add('mirror')
   // Make local name tag clickable for inline rename
-  tile.nameTag.classList.add('editable');
-  tile.nameTag.title = 'Click to change your name';
-  tile.nameTag.addEventListener('click', () => startInlineRename(tile.nameTag));
-  videoGrid.appendChild(tile.container);
-  updateGridCount();
+  tile.nameTag.classList.add('editable')
+  tile.nameTag.title = 'Click to change your name'
+  tile.nameTag.addEventListener('click', () => startInlineRename(tile.nameTag))
+  videoGrid.appendChild(tile.container)
+  updateGridCount()
 }
 
 function addRemoteVideo(peerId: string, stream: MediaStream) {
-  removeVideoTile(peerId);
-  const peer = manager.peerList.find(p => p.id === peerId);
-  const name = peer?.name || '...';
-  const tile = createVideoTile(peerId, name, false);
-  tile.video.srcObject = stream;
-  tile.video.autoplay = true;
-  tile.video.playsInline = true;
-  videoGrid.appendChild(tile.container);
-  updateGridCount();
+  removeVideoTile(peerId)
+  const peer = manager.peerList.find((p) => p.id === peerId)
+  const name = peer?.name || '...'
+  const tile = createVideoTile(peerId, name, false)
+  tile.video.srcObject = stream
+  tile.video.autoplay = true
+  tile.video.playsInline = true
+  videoGrid.appendChild(tile.container)
+  updateGridCount()
 }
 
 function createVideoTile(id: string, name: string, isLocal: boolean) {
-  const container = document.createElement('div');
-  container.className = 'video-tile';
-  container.dataset.peerId = id;
+  const container = document.createElement('div')
+  container.className = 'video-tile'
+  container.dataset.peerId = id
 
-  const video = document.createElement('video');
-  video.autoplay = true;
-  video.playsInline = true;
-  if (isLocal) video.muted = true;
+  const video = document.createElement('video')
+  video.autoplay = true
+  video.playsInline = true
+  if (isLocal) video.muted = true
 
-  const nameTag = document.createElement('span');
-  nameTag.className = 'name-tag';
-  nameTag.textContent = isLocal ? `${name} (you)` : name;
+  const nameTag = document.createElement('span')
+  nameTag.className = 'name-tag'
+  nameTag.textContent = isLocal ? `${name} (you)` : name
 
-  const mutedInd = document.createElement('div');
-  mutedInd.className = 'muted-indicator hidden';
-  mutedInd.textContent = '🔇';
+  const mutedInd = document.createElement('div')
+  mutedInd.className = 'muted-indicator hidden'
+  mutedInd.textContent = '🔇'
 
-  container.appendChild(video);
-  container.appendChild(nameTag);
-  container.appendChild(mutedInd);
+  container.appendChild(video)
+  container.appendChild(nameTag)
+  container.appendChild(mutedInd)
 
-  const tile = { container, video, nameTag, mutedInd };
-  videoTiles.set(id, tile);
-  return tile;
+  const tile = { container, video, nameTag, mutedInd }
+  videoTiles.set(id, tile)
+  return tile
 }
 
 function removeVideoTile(peerId: string) {
-  const tile = videoTiles.get(peerId);
-  if (tile) { tile.container.remove(); videoTiles.delete(peerId); updateGridCount(); }
+  const tile = videoTiles.get(peerId)
+  if (tile) {
+    tile.container.remove()
+    videoTiles.delete(peerId)
+    updateGridCount()
+  }
 }
 
 function updatePeerName(peerId: string, name: string) {
-  const tile = videoTiles.get(peerId);
+  const tile = videoTiles.get(peerId)
   if (tile) {
-    tile.nameTag.textContent = peerId === 'local' ? `${name} (you)` : name;
+    tile.nameTag.textContent = peerId === 'local' ? `${name} (you)` : name
   }
 }
 
 function updateMuteIndicator(peerId: string, muted: boolean) {
-  const tile = videoTiles.get(peerId);
-  if (tile) tile.mutedInd.classList.toggle('hidden', !muted);
+  const tile = videoTiles.get(peerId)
+  if (tile) tile.mutedInd.classList.toggle('hidden', !muted)
 }
 
 function updateGridCount() {
-  videoGrid.dataset.count = String(videoTiles.size);
+  videoGrid.dataset.count = String(videoTiles.size)
 }
 
 // ─── Inline rename (click on name tag) ───
 
 function startInlineRename(nameTag: HTMLSpanElement) {
-  const currentName = manager.myName;
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'name-tag-input';
-  input.value = currentName;
-  input.maxLength = 24;
-  input.style.width = `${Math.max(60, currentName.length * 9)}px`;
+  const currentName = manager.myName
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'name-tag-input'
+  input.value = currentName
+  input.maxLength = 24
+  input.style.width = `${Math.max(60, currentName.length * 9)}px`
 
-  nameTag.style.display = 'none';
-  nameTag.parentElement!.appendChild(input);
-  input.focus();
-  input.select();
+  nameTag.style.display = 'none'
+  nameTag.parentElement!.appendChild(input)
+  input.focus()
+  input.select()
 
   const finishRename = () => {
-    const newName = input.value.trim();
-    input.remove();
-    nameTag.style.display = '';
+    const newName = input.value.trim()
+    input.remove()
+    nameTag.style.display = ''
     if (newName && newName !== currentName) {
-      applyRename(newName);
+      applyRename(newName)
     } else {
-      updateLocalNameTag();
+      updateLocalNameTag()
     }
-  };
+  }
 
-  input.addEventListener('blur', finishRename);
+  input.addEventListener('blur', finishRename)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      e.preventDefault();
-      input.blur();
+      e.preventDefault()
+      input.blur()
     } else if (e.key === 'Escape') {
-      input.value = currentName;
-      input.blur();
+      input.value = currentName
+      input.blur()
     }
-  });
+  })
 }
 
 // ─── Chat ───
 
 function addChatMessage(from: string, text: string, isSelf: boolean) {
-  const msg = document.createElement('div');
-  msg.className = `chat-msg ${isSelf ? 'self' : ''}`;
+  const msg = document.createElement('div')
+  msg.className = `chat-msg ${isSelf ? 'self' : ''}`
 
   if (!isSelf) {
-    const peer = manager.peerList.find(p => p.id === from);
-    const nameDiv = document.createElement('div');
-    nameDiv.className = 'chat-msg-name';
-    nameDiv.textContent = peer?.name || from.slice(0, 8);
-    msg.appendChild(nameDiv);
+    const peer = manager.peerList.find((p) => p.id === from)
+    const nameDiv = document.createElement('div')
+    nameDiv.className = 'chat-msg-name'
+    nameDiv.textContent = peer?.name || from.slice(0, 8)
+    msg.appendChild(nameDiv)
   }
 
-  const textDiv = document.createElement('div');
-  textDiv.className = 'chat-msg-text';
-  textDiv.textContent = text;
-  msg.appendChild(textDiv);
+  const textDiv = document.createElement('div')
+  textDiv.className = 'chat-msg-text'
+  textDiv.textContent = text
+  msg.appendChild(textDiv)
 
-  chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  chatMessages.appendChild(msg)
+  chatMessages.scrollTop = chatMessages.scrollHeight
 }
 
 // ─── URL hash change ───
 
 window.addEventListener('hashchange', () => {
-  const code = window.location.hash.slice(1).trim();
-  if (code && code.length >= 4) joinRoom(code);
-});
+  const code = window.location.hash.slice(1).trim()
+  if (code && code.length >= 4) joinRoom(code)
+})
 
 // ─── Start ───
 
-init();
+init()
