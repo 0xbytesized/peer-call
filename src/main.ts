@@ -224,8 +224,6 @@ function saveDevicePref(key: 'mic' | 'speaker' | 'camera', deviceId: string) {
 async function requestMedia() {
   const prefs = getDevicePrefs()
   const deviceIds = { mic: prefs.mic, camera: prefs.camera }
-  // Try video+audio first, then degrade gracefully for mobile browsers
-  // where permissions or hardware constraints may prevent full access.
   try {
     localStream = await manager.startMedia(true, true, deviceIds)
     addLocalVideo(localStream)
@@ -233,7 +231,6 @@ async function requestMedia() {
     updateMicCameraButtons()
   } catch {
     try {
-      // No video, keep audio (e.g. camera not available on mobile)
       localStream = await manager.startMedia(false, true, deviceIds)
       addLocalVideo(localStream)
       cameraOn = false
@@ -242,7 +239,6 @@ async function requestMedia() {
       btnCamera.classList.add('off')
     } catch {
       try {
-        // No audio, keep video (e.g. mic permission denied on mobile)
         localStream = await manager.startMedia(true, false, deviceIds)
         addLocalVideo(localStream)
         micOn = false
@@ -335,7 +331,6 @@ function applyRename(newName: string) {
   manager.rename(newName.trim())
   localStorage.setItem('peercall-name', newName.trim())
   updateLocalNameTag()
-  // Update the settings input too
   inputDisplayName.value = manager.myName
 }
 
@@ -412,7 +407,6 @@ function setupCallControls() {
           const oldTrack = localStream.getAudioTracks()[0]
           if (oldTrack) localStream.removeTrack(oldTrack)
           localStream.addTrack(processedTrack)
-
           for (const remotePeer of manager.peerList) {
             const pc = getPeerConnection(remotePeer)
             if (pc) {
@@ -429,28 +423,24 @@ function setupCallControls() {
         noiseSuppression = false
         btnNoise.classList.remove('active')
         replaceIcon(btnNoise, 'volume-x')
-        // Make sure original audio track still works even if processing failed
-        const restored = disableNoiseSuppression()
-        if (restored && !localStream.getAudioTracks().length) {
-          localStream.addTrack(restored.getAudioTracks()[0])
+        // Restore original audio track if processing failed
+        const originalTrack = disableNoiseSuppression()
+        if (originalTrack && localStream.getAudioTracks().length === 0) {
+          localStream.addTrack(originalTrack)
         }
       }
     } else {
       try {
-        const originalStream = disableNoiseSuppression()
-        if (originalStream) {
-          const originalTrack = originalStream.getAudioTracks()[0]
-          if (originalTrack) {
-            const processedTrack = localStream.getAudioTracks()[0]
-            if (processedTrack) localStream.removeTrack(processedTrack)
-            localStream.addTrack(originalTrack)
-
-            for (const remotePeer of manager.peerList) {
-              const pc = getPeerConnection(remotePeer)
-              if (pc) {
-                const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
-                if (sender) sender.replaceTrack(originalTrack)
-              }
+        const originalTrack = disableNoiseSuppression()
+        if (originalTrack) {
+          const processedTrack = localStream.getAudioTracks()[0]
+          if (processedTrack) localStream.removeTrack(processedTrack)
+          localStream.addTrack(originalTrack)
+          for (const remotePeer of manager.peerList) {
+            const pc = getPeerConnection(remotePeer)
+            if (pc) {
+              const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
+              if (sender) sender.replaceTrack(originalTrack)
             }
           }
         }
@@ -462,6 +452,7 @@ function setupCallControls() {
       replaceIcon(btnNoise, 'volume-x')
     }
   })
+
   btnChat.addEventListener('click', () => {
     chatOpen = !chatOpen
     chatPanel.classList.toggle('hidden', !chatOpen)
@@ -470,7 +461,6 @@ function setupCallControls() {
 
   btnCloseChat.addEventListener('click', () => {
     chatOpen = false
-    chatPanel.classList.add('hidden')
   })
 
   btnLeave.addEventListener('click', () => {

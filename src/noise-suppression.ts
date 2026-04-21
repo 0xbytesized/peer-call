@@ -3,6 +3,9 @@
  *
  * Uses @shiguredo/rnnoise-wasm to process audio in the main thread.
  * Creates a processed MediaStream that replaces the original audio track.
+ *
+ * Key: we store a CLONE of the original audio track (not the stream reference)
+ * so that we can restore it cleanly when noise suppression is disabled.
  */
 
 import { Rnnoise } from '@shiguredo/rnnoise-wasm'
@@ -17,13 +20,10 @@ let audioContext: AudioContext | null = null
 let sourceNode: MediaStreamAudioSourceNode | null = null
 let destinationNode: MediaStreamAudioDestinationNode | null = null
 let processorNode: ScriptProcessorNode | null = null
-let originalStream: MediaStream | null = null
 
-const PROCESSOR_BUFFER_SIZE = 4096
+// Store the original audio track (cloned) so we can restore it later
+let originalAudioTrack: MediaStreamTrack | null = null
 
-/**
- * Pre-load the RNNoise WASM module.
- */
 export async function initNoiseSuppression(): Promise<void> {
   if (rnnoiseInstance || loading) return
   loading = true
@@ -59,30 +59,20 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
     return new MediaStream([destinationNode.stream.getAudioTracks()[0], ...stream.getVideoTracks()])
   }
 
-  originalStream = stream
+  // Clone the original audio track so we can restore it later
+  // (the stream itself may get modified by the caller swapping tracks)
+  const originalTrack = audioTracks[0]
+  originalAudioTrack = originalTrack.clone()
 
   audioContext = new AudioContext({ sampleRate: 48000 })
   sourceNode = audioContext.createMediaStreamSource(stream)
   destinationNode = audioContext.createMediaStreamDestination()
 
-  processorNode = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1)
+  processorNode = audioContext.createScriptProcessor(4096, 1, 1)
 
   const frameSize = rnnoiseInstance.frameSize
-
-  // RNNoise processes frames in-place: it reads from inputBuffer AND writes
-  // the denoised result back to the same buffer. So we must:
-  // 1. Copy input samples into inputBuffer
-  // 2. Call processFrame(inputBuffer) — modifies inputBuffer in-place
-  // 3. Copy the now-denoised inputBuffer into the output
-  //
-  // But we also need outputBuffer to avoid reading denoised data that we're
-  // simultaneously overwriting with new input. So we use a separate output
-  // staging buffer.
   const inputBuffer = new Float32Array(frameSize)
-  const outputBuffer = new Float32Array(frameSize)
   let inputOffset = 0
-  let outputReady = 0
-  let outputRead = 0
 
   processorNode.onaudioprocess = (event) => {
     if (!denoiseState) return
@@ -91,40 +81,22 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
 
     let outIdx = 0
 
-    // First, drain any leftover denoised samples from previous round
-    while (outputRead < outputReady && outIdx < output.length) {
-      output[outIdx++] = outputBuffer[outputRead++]
-    }
-
-    // Process input samples frame by frame
-    for (let i = 0; i < input.length && outIdx < output.length; i++) {
+    for (let i = 0; i < input.length; i++) {
       inputBuffer[inputOffset++] = input[i]
 
       if (inputOffset >= frameSize) {
-        // Frame complete — process through RNNoise (modifies inputBuffer in-place)
+        // processFrame modifies inputBuffer in-place with denoised audio
         denoiseState.processFrame(inputBuffer)
 
-        // If we can write directly to output, do it
-        if (outIdx + frameSize <= output.length) {
-          for (let j = 0; j < frameSize; j++) {
-            output[outIdx++] = inputBuffer[j]
-          }
-        } else {
-          // Not enough room in output — stage in outputBuffer for next round
-          outputBuffer.set(inputBuffer)
-          outputReady = frameSize
-          outputRead = 0
-          // Write what fits
-          while (outIdx < output.length) {
-            output[outIdx++] = outputBuffer[outputRead++]
-          }
+        // Copy denoised samples to output
+        for (let j = 0; j < frameSize && outIdx < output.length; j++) {
+          output[outIdx++] = inputBuffer[j]
         }
-
         inputOffset = 0
       }
     }
 
-    // Fill remainder with silence (edge case on first/last buffer)
+    // Fill remainder with silence
     while (outIdx < output.length) {
       output[outIdx++] = 0
     }
@@ -139,11 +111,13 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
 }
 
 /**
- * Disable noise suppression and return to the original audio stream.
+ * Disable noise suppression.
+ * Returns the original (cloned) audio track, or null if not active.
  */
-export function disableNoiseSuppression(): MediaStream | null {
-  if (!isActive || !originalStream) return null
+export function disableNoiseSuppression(): MediaStreamTrack | null {
+  if (!isActive) return null
 
+  // Disconnect and close the audio pipeline
   processorNode?.disconnect()
   sourceNode?.disconnect()
   audioContext?.close()
@@ -155,7 +129,10 @@ export function disableNoiseSuppression(): MediaStream | null {
 
   isActive = false
 
-  return originalStream
+  // Return the cloned original track
+  const track = originalAudioTrack
+  originalAudioTrack = null
+  return track
 }
 
 /**
@@ -166,12 +143,12 @@ export function isNoiseSuppressionActive(): boolean {
 }
 
 /**
- * Clean up all resources. Call this when leaving the call.
+ * Clean up all resources.
  */
 export function cleanupNoiseSuppression(): void {
   disableNoiseSuppression()
   denoiseState?.destroy()
   denoiseState = null
   rnnoiseInstance = null
-  originalStream = null
+  originalAudioTrack = null
 }
