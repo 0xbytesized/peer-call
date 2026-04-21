@@ -58,6 +58,16 @@ export interface RemotePeer {
   videoEnabled: boolean
 }
 
+/**
+ * Get the RTCPeerConnection for a remote peer.
+ * This accesses the internal peer connection used by PeerJS
+ * so we can replace tracks (for device switching, noise suppression, etc.)
+ */
+export function getPeerConnection(remotePeer: RemotePeer): RTCPeerConnection | null {
+  if (!remotePeer.call) return null
+  return (remotePeer.call as unknown as { peerConnection: RTCPeerConnection }).peerConnection ?? null
+}
+
 type EventHandler =
   | { type: 'peer-joined'; peer: RemotePeer }
   | { type: 'peer-left'; peerId: string }

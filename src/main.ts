@@ -1,4 +1,4 @@
-import { PeerCallManager } from './peer.js'
+import { PeerCallManager, getPeerConnection } from './peer.js'
 import {
   Mic,
   MicOff,
@@ -15,15 +15,8 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide'
-import { initNoiseSuppression, enableNoiseSuppression, disableNoiseSuppression } from './noise-suppression.js'
+import { enableNoiseSuppression, disableNoiseSuppression } from './noise-suppression.js'
 import './style.css'
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// ─── PeerJS internals access (not typed in peerjs) ───
-
-const getPeerSenders = (mgr: PeerCallManager, peerId: string) =>
-  (mgr as any).peer?.connections?.get(peerId)?.[0]?.peerConnection?.getSenders() as RTCRtpSender[] | undefined
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ─── Icon rendering (Lucide, tree-shaken) ───
 
@@ -388,9 +381,6 @@ function setupCallControls() {
 
   // ─── Noise suppression ───
 
-  // Pre-load RNNoise WASM in the background
-  initNoiseSuppression().catch((err) => console.warn('[PeerCall] RNNoise WASM load failed:', err))
-
   btnNoise.addEventListener('click', async () => {
     if (!localStream) return
 
@@ -404,10 +394,10 @@ function setupCallControls() {
           localStream.addTrack(processedTrack)
 
           for (const remotePeer of manager.peerList) {
-            const senders = getPeerSenders(manager, remotePeer.id)
-            if (senders) {
-              const sender = senders.find((s) => s.track?.kind === 'audio')
-              if (sender) await sender.replaceTrack(processedTrack)
+            const pc = getPeerConnection(remotePeer)
+            if (pc) {
+              const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
+              if (sender) sender.replaceTrack(processedTrack)
             }
           }
         }
@@ -416,31 +406,42 @@ function setupCallControls() {
         replaceIcon(btnNoise, 'volume-2')
       } catch (err) {
         console.error('[PeerCall] Failed to enable noise suppression:', err)
+        noiseSuppression = false
+        btnNoise.classList.remove('active')
+        replaceIcon(btnNoise, 'volume-x')
+        // Make sure original audio track still works even if processing failed
+        const restored = disableNoiseSuppression()
+        if (restored && !localStream.getAudioTracks().length) {
+          localStream.addTrack(restored.getAudioTracks()[0])
+        }
       }
     } else {
-      const originalStream = disableNoiseSuppression()
-      if (originalStream) {
-        const originalTrack = originalStream.getAudioTracks()[0]
-        if (originalTrack) {
-          const processedTrack = localStream.getAudioTracks()[0]
-          if (processedTrack) localStream.removeTrack(processedTrack)
-          localStream.addTrack(originalTrack)
+      try {
+        const originalStream = disableNoiseSuppression()
+        if (originalStream) {
+          const originalTrack = originalStream.getAudioTracks()[0]
+          if (originalTrack) {
+            const processedTrack = localStream.getAudioTracks()[0]
+            if (processedTrack) localStream.removeTrack(processedTrack)
+            localStream.addTrack(originalTrack)
 
-          for (const remotePeer of manager.peerList) {
-            const senders = getPeerSenders(manager, remotePeer.id)
-            if (senders) {
-              const sender = senders.find((s) => s.track?.kind === 'audio')
-              if (sender) await sender.replaceTrack(originalTrack)
+            for (const remotePeer of manager.peerList) {
+              const pc = getPeerConnection(remotePeer)
+              if (pc) {
+                const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
+                if (sender) sender.replaceTrack(originalTrack)
+              }
             }
           }
         }
+      } catch (err) {
+        console.error('[PeerCall] Failed to disable noise suppression:', err)
       }
       noiseSuppression = false
       btnNoise.classList.remove('active')
       replaceIcon(btnNoise, 'volume-x')
     }
   })
-
   btnChat.addEventListener('click', () => {
     chatOpen = !chatOpen
     chatPanel.classList.toggle('hidden', !chatOpen)
@@ -518,9 +519,9 @@ function setupCallControls() {
         localStream.removeTrack(localStream.getAudioTracks()[0])
         localStream.addTrack(audioTrack)
         for (const remotePeer of manager.peerList) {
-          const senders = getPeerSenders(manager, remotePeer.id)
-          if (senders) {
-            const sender = senders.find((s) => s.track?.kind === 'audio')
+          const pc = getPeerConnection(remotePeer)
+          if (pc) {
+            const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
             if (sender) sender.replaceTrack(audioTrack)
           }
         }
@@ -558,9 +559,9 @@ function setupCallControls() {
         localStream.removeTrack(localStream.getVideoTracks()[0])
         localStream.addTrack(videoTrack)
         for (const remotePeer of manager.peerList) {
-          const senders = getPeerSenders(manager, remotePeer.id)
-          if (senders) {
-            const sender = senders.find((s) => s.track?.kind === 'video')
+          const pc = getPeerConnection(remotePeer)
+          if (pc) {
+            const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
             if (sender) sender.replaceTrack(videoTrack)
           }
         }
