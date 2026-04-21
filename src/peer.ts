@@ -252,15 +252,25 @@ export class PeerCallManager {
 
   // ─── Media ───
 
-  async startMedia(video = true, audio = true): Promise<MediaStream> {
+  async startMedia(video = true, audio = true, deviceIds?: { mic?: string; camera?: string }): Promise<MediaStream> {
     // Build constraints — mobile browsers need specific handling.
     // Some mobile browsers reject advanced constraints entirely, so we
     // use simple boolean constraints as fallback.
     const audioConstraints: boolean | MediaTrackConstraints = audio
-      ? { echoCancellation: { ideal: true }, noiseSuppression: { ideal: true }, autoGainControl: { ideal: true } }
+      ? {
+          ...(deviceIds?.mic ? { deviceId: { exact: deviceIds.mic } } : {}),
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+        }
       : false
     const videoConstraints: boolean | MediaTrackConstraints = video
-      ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: { ideal: 'user' } }
+      ? {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: { ideal: 'user' },
+          ...(deviceIds?.camera ? { deviceId: { exact: deviceIds.camera } } : {}),
+        }
       : false
 
     try {

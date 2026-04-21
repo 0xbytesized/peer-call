@@ -201,20 +201,40 @@ async function joinRoom(code: string, name?: string) {
   }
 }
 
+// ─── Device preferences (persisted in localStorage) ───
+
+const DEVICE_PREFS_KEY = 'peercall-devices'
+
+function getDevicePrefs(): { mic?: string; speaker?: string; camera?: string } {
+  try {
+    return JSON.parse(localStorage.getItem(DEVICE_PREFS_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveDevicePref(key: 'mic' | 'speaker' | 'camera', deviceId: string) {
+  const prefs = getDevicePrefs()
+  prefs[key] = deviceId
+  localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(prefs))
+}
+
 // ─── Media request ───
 
 async function requestMedia() {
+  const prefs = getDevicePrefs()
+  const deviceIds = { mic: prefs.mic, camera: prefs.camera }
   // Try video+audio first, then degrade gracefully for mobile browsers
   // where permissions or hardware constraints may prevent full access.
   try {
-    localStream = await manager.startMedia(true, true)
+    localStream = await manager.startMedia(true, true, deviceIds)
     addLocalVideo(localStream)
     mediaReady = true
     updateMicCameraButtons()
   } catch {
     try {
       // No video, keep audio (e.g. camera not available on mobile)
-      localStream = await manager.startMedia(false, true)
+      localStream = await manager.startMedia(false, true, deviceIds)
       addLocalVideo(localStream)
       cameraOn = false
       mediaReady = true
@@ -223,7 +243,7 @@ async function requestMedia() {
     } catch {
       try {
         // No audio, keep video (e.g. mic permission denied on mobile)
-        localStream = await manager.startMedia(true, false)
+        localStream = await manager.startMedia(true, false, deviceIds)
         addLocalVideo(localStream)
         micOn = false
         mediaReady = true
@@ -508,6 +528,7 @@ function setupCallControls() {
   selectAudioInput.addEventListener('change', async () => {
     const deviceId = selectAudioInput.value
     if (!deviceId) return
+    saveDevicePref('mic', deviceId)
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: { exact: deviceId } },
@@ -535,6 +556,7 @@ function setupCallControls() {
     selectAudioOutput.addEventListener('change', async () => {
       const deviceId = selectAudioOutput.value
       if (!deviceId) return
+      saveDevicePref('speaker', deviceId)
       for (const tile of videoTiles.values()) {
         try {
           await (tile.video as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId)
@@ -548,6 +570,7 @@ function setupCallControls() {
   selectVideoInput.addEventListener('change', async () => {
     const deviceId = selectVideoInput.value
     if (!deviceId) return
+    saveDevicePref('camera', deviceId)
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -640,13 +663,25 @@ async function populateDeviceSelectors() {
       })
     }
 
-    // Select current active device
-    if (localStream) {
+    // Select saved device preferences, fall back to current active device
+    const saved = getDevicePrefs()
+    if (saved.mic && audioInputs.some((d) => d.deviceId === saved.mic)) {
+      selectAudioInput.value = saved.mic
+    } else if (localStream) {
       const currentAudio = localStream.getAudioTracks()[0]
       if (currentAudio) {
         const settings = currentAudio.getSettings()
         if (settings.deviceId) selectAudioInput.value = settings.deviceId
       }
+    }
+
+    if (saved.speaker && audioOutputs.some((d) => d.deviceId === saved.speaker)) {
+      selectAudioOutput.value = saved.speaker
+    }
+
+    if (saved.camera && videoInputs.some((d) => d.deviceId === saved.camera)) {
+      selectVideoInput.value = saved.camera
+    } else if (localStream) {
       const currentVideo = localStream.getVideoTracks()[0]
       if (currentVideo) {
         const settings = currentVideo.getSettings()
