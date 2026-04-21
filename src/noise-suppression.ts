@@ -3,9 +3,6 @@
  *
  * Uses @shiguredo/rnnoise-wasm to process audio in the main thread.
  * Creates a processed MediaStream that replaces the original audio track.
- *
- * The WASM binary is loaded lazily by Rnnoise.load() — only downloaded
- * when the user first enables noise suppression.
  */
 
 import { Rnnoise } from '@shiguredo/rnnoise-wasm'
@@ -25,8 +22,7 @@ let originalStream: MediaStream | null = null
 const PROCESSOR_BUFFER_SIZE = 4096
 
 /**
- * Pre-load the RNNoise WASM module. Call this early (e.g. on page load)
- * so it's ready when the user enables noise suppression.
+ * Pre-load the RNNoise WASM module.
  */
 export async function initNoiseSuppression(): Promise<void> {
   if (rnnoiseInstance || loading) return
@@ -52,7 +48,6 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
     await initNoiseSuppression()
   }
 
-  // If WASM failed to load, return the original stream unchanged
   if (!rnnoiseInstance || !denoiseState) {
     throw new Error('RNNoise WASM not available')
   }
@@ -60,15 +55,12 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
   const audioTracks = stream.getAudioTracks()
   if (audioTracks.length === 0) return stream
 
-  // If already processing, return the processed stream
   if (isActive && destinationNode) {
     return new MediaStream([destinationNode.stream.getAudioTracks()[0], ...stream.getVideoTracks()])
   }
 
-  // Store original stream for later cleanup
   originalStream = stream
 
-  // Create audio processing pipeline
   audioContext = new AudioContext({ sampleRate: 48000 })
   sourceNode = audioContext.createMediaStreamSource(stream)
   destinationNode = audioContext.createMediaStreamDestination()
@@ -76,35 +68,65 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
   processorNode = audioContext.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1)
 
   const frameSize = rnnoiseInstance.frameSize
+
+  // RNNoise processes frames in-place: it reads from inputBuffer AND writes
+  // the denoised result back to the same buffer. So we must:
+  // 1. Copy input samples into inputBuffer
+  // 2. Call processFrame(inputBuffer) — modifies inputBuffer in-place
+  // 3. Copy the now-denoised inputBuffer into the output
+  //
+  // But we also need outputBuffer to avoid reading denoised data that we're
+  // simultaneously overwriting with new input. So we use a separate output
+  // staging buffer.
   const inputBuffer = new Float32Array(frameSize)
+  const outputBuffer = new Float32Array(frameSize)
   let inputOffset = 0
+  let outputReady = 0
+  let outputRead = 0
 
   processorNode.onaudioprocess = (event) => {
     if (!denoiseState) return
     const input = event.inputBuffer.getChannelData(0)
     const output = event.outputBuffer.getChannelData(0)
 
-    let processedIndex = 0
-    let bufOffset = inputOffset
+    let outIdx = 0
 
-    for (let i = 0; i < input.length; i++) {
-      inputBuffer[bufOffset] = input[i]
-      bufOffset++
+    // First, drain any leftover denoised samples from previous round
+    while (outputRead < outputReady && outIdx < output.length) {
+      output[outIdx++] = outputBuffer[outputRead++]
+    }
 
-      if (bufOffset >= frameSize) {
+    // Process input samples frame by frame
+    for (let i = 0; i < input.length && outIdx < output.length; i++) {
+      inputBuffer[inputOffset++] = input[i]
+
+      if (inputOffset >= frameSize) {
+        // Frame complete — process through RNNoise (modifies inputBuffer in-place)
         denoiseState.processFrame(inputBuffer)
-        for (let j = 0; j < frameSize && processedIndex < output.length; j++) {
-          output[processedIndex] = inputBuffer[j]
-          processedIndex++
+
+        // If we can write directly to output, do it
+        if (outIdx + frameSize <= output.length) {
+          for (let j = 0; j < frameSize; j++) {
+            output[outIdx++] = inputBuffer[j]
+          }
+        } else {
+          // Not enough room in output — stage in outputBuffer for next round
+          outputBuffer.set(inputBuffer)
+          outputReady = frameSize
+          outputRead = 0
+          // Write what fits
+          while (outIdx < output.length) {
+            output[outIdx++] = outputBuffer[outputRead++]
+          }
         }
-        bufOffset = 0
+
+        inputOffset = 0
       }
     }
-    inputOffset = bufOffset
 
-    while (processedIndex < output.length) {
-      output[processedIndex] = 0
-      processedIndex++
+    // Fill remainder with silence (edge case on first/last buffer)
+    while (outIdx < output.length) {
+      output[outIdx++] = 0
     }
   }
 
