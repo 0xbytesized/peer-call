@@ -331,6 +331,30 @@ async function applyCameraPipeline() {
   // localStream.removeTrack(rawTrack) without stopping — the pipeline now
   // owns it. Then publish the canvas track.
   await replaceLocalVideoTrack(cameraPipeline.output, false)
+  refreshLocalPreview()
+}
+
+/**
+ * Reassign the local tile's video srcObject to pick up a new track cleanly.
+ * MediaStream track changes propagate automatically to HTMLMediaElement, but
+ * in practice detached-video → canvas → captureStream setups sometimes need
+ * a kick to render the new track.
+ */
+function refreshLocalPreview() {
+  const localTile = videoTiles.get('local')
+  if (localTile && localStream) {
+    localTile.video.srcObject = localStream
+  }
+}
+
+/**
+ * The deviceId of the camera currently in use. Prefer the pipeline's raw
+ * input track (the canvas track has no meaningful deviceId), fall back to
+ * whatever is in localStream, then to saved prefs.
+ */
+function currentCameraDeviceId(): string | undefined {
+  const raw = cameraPipeline?.input ?? localStream?.getVideoTracks()[0]
+  return raw?.getSettings().deviceId || getDevicePrefs().camera
 }
 
 // ─── Media request ───
@@ -732,7 +756,11 @@ function setupCallControls() {
       if (!localStream) return
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { deviceId: { exact: deviceId } },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          deviceId: { exact: deviceId },
+        },
       })
       const rawTrack = newStream.getVideoTracks()[0]
       if (!rawTrack) return
@@ -742,6 +770,7 @@ function setupCallControls() {
       cameraPipeline?.stop()
       cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
       await replaceLocalVideoTrack(cameraPipeline.output, false)
+      refreshLocalPreview()
     } catch (err) {
       console.error('[PeerCall] Failed to switch camera:', err)
     }
@@ -832,11 +861,10 @@ async function populateDeviceSelectors() {
 
     if (saved.camera && videoInputs.some((d) => d.deviceId === saved.camera)) {
       selectVideoInput.value = saved.camera
-    } else if (localStream) {
-      const currentVideo = localStream.getVideoTracks()[0]
-      if (currentVideo) {
-        const settings = currentVideo.getSettings()
-        if (settings.deviceId) selectVideoInput.value = settings.deviceId
+    } else {
+      const activeId = currentCameraDeviceId()
+      if (activeId && videoInputs.some((d) => d.deviceId === activeId)) {
+        selectVideoInput.value = activeId
       }
     }
   } catch (err) {

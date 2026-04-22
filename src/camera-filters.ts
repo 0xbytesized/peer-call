@@ -60,6 +60,7 @@ function buildCssFilter(f: CameraFilters): string {
 }
 
 export interface CameraPipeline {
+  readonly input: MediaStreamTrack
   readonly output: MediaStreamTrack
   setFilters(f: CameraFilters): void
   stop(): void
@@ -72,9 +73,15 @@ export interface CameraPipeline {
 export function startCameraPipeline(cameraTrack: MediaStreamTrack, initialFilters: CameraFilters): CameraPipeline {
   const video = document.createElement('video')
   video.srcObject = new MediaStream([cameraTrack])
-  video.autoplay = true
   video.playsInline = true
   video.muted = true
+
+  // `autoplay` alone is unreliable on detached <video> elements (not in DOM).
+  // Explicit play() ensures frames start flowing so the canvas has something
+  // to draw.
+  video.play().catch((err) => {
+    console.error('[PeerCall] Pipeline video play() failed:', err)
+  })
 
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d', { alpha: false })
@@ -106,6 +113,7 @@ export function startCameraPipeline(cameraTrack: MediaStreamTrack, initialFilter
   const outTrack = outStream.getVideoTracks()[0]
 
   return {
+    input: cameraTrack,
     output: outTrack,
     setFilters(f) {
       currentFilters = f
