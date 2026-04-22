@@ -14,8 +14,17 @@ import {
   Settings,
   Volume2,
   VolumeX,
+  ChevronUp,
 } from 'lucide'
 import { enableNoiseSuppression, disableNoiseSuppression, updateNoiseSuppressionSource } from './noise-suppression.js'
+import {
+  startCameraPipeline,
+  loadFilters,
+  saveFilters,
+  DEFAULT_FILTERS,
+  type CameraFilters,
+  type CameraPipeline,
+} from './camera-filters.js'
 import './style.css'
 
 // ─── Icon rendering (Lucide, tree-shaken) ───
@@ -36,6 +45,7 @@ const iconMap: Record<string, any> = {
   settings: Settings,
   'volume-2': Volume2,
   'volume-x': VolumeX,
+  'chevron-up': ChevronUp,
 }
 
 function renderIcon(name: string, size = 24): string {
@@ -95,6 +105,18 @@ const btnCopy = $<HTMLButtonElement>('btn-copy')
 const btnSettings = $<HTMLButtonElement>('btn-settings')
 const btnCloseSettings = $<HTMLButtonElement>('btn-close-settings')
 const settingsPanel = $<HTMLDivElement>('settings-panel')
+const btnCameraMenu = $<HTMLButtonElement>('btn-camera-menu')
+const btnCloseCamera = $<HTMLButtonElement>('btn-close-camera')
+const cameraPanel = $<HTMLDivElement>('camera-panel')
+const btnResetFilters = $<HTMLButtonElement>('btn-reset-filters')
+const filterBrightness = $<HTMLInputElement>('filter-brightness')
+const filterContrast = $<HTMLInputElement>('filter-contrast')
+const filterSaturation = $<HTMLInputElement>('filter-saturation')
+const filterBlur = $<HTMLInputElement>('filter-blur')
+const valBrightness = $<HTMLSpanElement>('val-brightness')
+const valContrast = $<HTMLSpanElement>('val-contrast')
+const valSaturation = $<HTMLSpanElement>('val-saturation')
+const valBlur = $<HTMLSpanElement>('val-blur')
 const selectAudioInput = $<HTMLSelectElement>('select-audio-input')
 const selectAudioOutput = $<HTMLSelectElement>('select-audio-output')
 const selectVideoInput = $<HTMLSelectElement>('select-video-input')
@@ -114,6 +136,8 @@ let screenSharing = false
 let noiseSuppression = false
 let chatOpen = false
 let mediaReady = false
+let cameraPipeline: CameraPipeline | null = null
+let cameraFilters: CameraFilters = loadFilters()
 
 const videoTiles = new Map<
   string,
@@ -266,6 +290,49 @@ async function replaceLocalAudioTrack(newTrack: MediaStreamTrack) {
   }
 }
 
+/**
+ * Replace the video track in localStream and on every outgoing sender.
+ * The previous track is removed but NOT stopped — the caller (or the
+ * pipeline) owns it. Use for pipeline swaps where we don't want to kill
+ * the raw camera that the pipeline is still rendering from.
+ */
+async function replaceLocalVideoTrack(newTrack: MediaStreamTrack, stopOld: boolean) {
+  if (!localStream) return
+  const oldTrack = localStream.getVideoTracks()[0]
+  if (oldTrack) {
+    if (stopOld) oldTrack.stop()
+    localStream.removeTrack(oldTrack)
+  }
+  localStream.addTrack(newTrack)
+  for (const remotePeer of manager.peerList) {
+    const pc = getPeerConnection(remotePeer)
+    if (pc) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+      if (sender) await sender.replaceTrack(newTrack)
+    }
+  }
+}
+
+/**
+ * Wrap the current raw camera track in localStream with a filter pipeline
+ * and publish the canvas-derived track in its place. Safe to call after
+ * `startMedia` populated localStream with a fresh camera track.
+ */
+async function applyCameraPipeline() {
+  if (!localStream) return
+  const rawTrack = localStream.getVideoTracks()[0]
+  if (!rawTrack) return
+
+  // If an old pipeline exists (e.g. camera device change), tear it down
+  // first. The pipeline owns its input track and will stop it.
+  cameraPipeline?.stop()
+  cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
+
+  // localStream.removeTrack(rawTrack) without stopping — the pipeline now
+  // owns it. Then publish the canvas track.
+  await replaceLocalVideoTrack(cameraPipeline.output, false)
+}
+
 // ─── Media request ───
 
 async function requestMedia() {
@@ -276,6 +343,7 @@ async function requestMedia() {
     addLocalVideo(localStream)
     mediaReady = true
     updateMicCameraButtons()
+    await applyCameraPipeline()
   } catch {
     try {
       localStream = await manager.startMedia(false, true, deviceIds)
@@ -292,6 +360,7 @@ async function requestMedia() {
         mediaReady = true
         updateMicCameraButtons()
         btnMic.classList.add('off')
+        await applyCameraPipeline()
       } catch {
         addNoMediaTile()
         micOn = false
@@ -415,6 +484,7 @@ function setupCallControls() {
         addLocalVideo(localStream)
         mediaReady = true
         cameraOn = true
+        await applyCameraPipeline()
       } catch (err) {
         console.error('[PeerCall] Could not enable camera:', err)
         return
@@ -547,6 +617,65 @@ function setupCallControls() {
     }
   })
 
+  // ─── Camera panel (device + filters) ───
+
+  let cameraPanelOpen = false
+
+  function updateFilterLabels() {
+    valBrightness.textContent = `${Math.round(cameraFilters.brightness * 100)}%`
+    valContrast.textContent = `${Math.round(cameraFilters.contrast * 100)}%`
+    valSaturation.textContent = `${Math.round(cameraFilters.saturation * 100)}%`
+    valBlur.textContent = `${cameraFilters.blur}px`
+  }
+
+  function syncFilterInputs() {
+    filterBrightness.value = String(cameraFilters.brightness)
+    filterContrast.value = String(cameraFilters.contrast)
+    filterSaturation.value = String(cameraFilters.saturation)
+    filterBlur.value = String(cameraFilters.blur)
+    updateFilterLabels()
+  }
+
+  syncFilterInputs()
+
+  btnCameraMenu.addEventListener('click', async () => {
+    cameraPanelOpen = !cameraPanelOpen
+    cameraPanel.classList.toggle('hidden', !cameraPanelOpen)
+    if (cameraPanelOpen) {
+      await populateDeviceSelectors()
+      syncFilterInputs()
+    }
+  })
+
+  btnCloseCamera.addEventListener('click', () => {
+    cameraPanelOpen = false
+    cameraPanel.classList.add('hidden')
+  })
+
+  function applyFilterChange() {
+    cameraFilters = {
+      brightness: parseFloat(filterBrightness.value),
+      contrast: parseFloat(filterContrast.value),
+      saturation: parseFloat(filterSaturation.value),
+      blur: parseFloat(filterBlur.value),
+    }
+    cameraPipeline?.setFilters(cameraFilters)
+    updateFilterLabels()
+    saveFilters(cameraFilters)
+  }
+
+  filterBrightness.addEventListener('input', applyFilterChange)
+  filterContrast.addEventListener('input', applyFilterChange)
+  filterSaturation.addEventListener('input', applyFilterChange)
+  filterBlur.addEventListener('input', applyFilterChange)
+
+  btnResetFilters.addEventListener('click', () => {
+    cameraFilters = { ...DEFAULT_FILTERS }
+    cameraPipeline?.setFilters(cameraFilters)
+    saveFilters(cameraFilters)
+    syncFilterInputs()
+  })
+
   selectAudioInput.addEventListener('change', async () => {
     const deviceId = selectAudioInput.value
     if (!deviceId) return
@@ -600,25 +729,19 @@ function setupCallControls() {
     if (!deviceId) return
     saveDevicePref('camera', deviceId)
     try {
+      if (!localStream) return
       const newStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { deviceId: { exact: deviceId } },
       })
-      const videoTrack = newStream.getVideoTracks()[0]
-      if (localStream && videoTrack) {
-        localStream.getVideoTracks().forEach((t) => t.stop())
-        localStream.removeTrack(localStream.getVideoTracks()[0])
-        localStream.addTrack(videoTrack)
-        for (const remotePeer of manager.peerList) {
-          const pc = getPeerConnection(remotePeer)
-          if (pc) {
-            const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
-            if (sender) sender.replaceTrack(videoTrack)
-          }
-        }
-      }
-      const localTile = videoTiles.get('local')
-      if (localTile) localTile.video.srcObject = localStream
+      const rawTrack = newStream.getVideoTracks()[0]
+      if (!rawTrack) return
+
+      // Tear down the old pipeline (which stops the old raw track) and
+      // start a fresh one on the new camera.
+      cameraPipeline?.stop()
+      cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
+      await replaceLocalVideoTrack(cameraPipeline.output, false)
     } catch (err) {
       console.error('[PeerCall] Failed to switch camera:', err)
     }

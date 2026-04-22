@@ -37,6 +37,10 @@ PeerCall is a **zero-backend** WebRTC video-conferencing app. Everything runs in
 
 `CUSTOM_ICE_SERVERS` in `peer.ts` bundles Google STUN + Metered Open Relay TURN (UDP and TCP on ports 80/443). TURN is required for mobile/CGNAT/symmetric-NAT scenarios where direct P2P fails. If you swap in a different TURN provider, keep the TCP-on-443 entry — some ISPs block everything else.
 
+### Camera filter pipeline
+
+`src/camera-filters.ts` wraps the raw camera track in a `<video> → <canvas>` pipeline whose output is published via `canvas.captureStream()` — that derived track is what sits in `localStream` and the WebRTC senders, so **remote peers see the filtered image, not just the local preview**. Filters (brightness/contrast/saturation/blur) are applied via `ctx.filter` at draw time; values persist in `localStorage` under `peercall-filters`. When the user changes camera device or starts the call, `applyCameraPipeline()` in `main.ts` tears down the old pipeline (which owns and stops the raw camera) and swaps the new canvas track into `localStream` and senders via `replaceTrack`.
+
 ### Track replacement pattern
 
 Several features (device switching, screen share, noise suppression) swap out the local `MediaStreamTrack` without tearing down the PeerConnection. The pattern used throughout `main.ts`:

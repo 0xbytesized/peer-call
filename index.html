@@ -102,11 +102,6 @@
             <select id="select-audio-output"></select>
           </label>
           <label>
-            <span>Camera</span>
-            <select id="select-video-input"></select>
-          </label>
-          <div class="settings-divider"></div>
-          <label>
             <span>Display name</span>
             <input id="input-display-name" type="text" maxlength="24" placeholder="Change your name" />
           </label>
@@ -117,9 +112,46 @@
         <button id="btn-mic" class="control-btn" aria-label="Toggle microphone" title="Mute/Unmute">
           <i data-lucide="mic"></i>
         </button>
-        <button id="btn-camera" class="control-btn" aria-label="Toggle camera" title="Camera on/off">
-          <i data-lucide="video"></i>
-        </button>
+        <div class="control-btn-split">
+          <button id="btn-camera" class="control-btn" aria-label="Toggle camera" title="Camera on/off">
+            <i data-lucide="video"></i>
+          </button>
+          <button id="btn-camera-menu" class="control-btn-chevron" aria-label="Camera options" title="Camera options">
+            <i data-lucide="chevron-up"></i>
+          </button>
+        </div>
+        <div id="camera-panel" class="camera-panel hidden">
+          <div class="camera-panel-header">
+            <span>Cámara</span>
+            <button id="btn-close-camera" class="btn-icon" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="camera-panel-content">
+            <label>
+              <span>Dispositivo</span>
+              <select id="select-video-input"></select>
+            </label>
+            <div class="settings-divider"></div>
+            <div class="filter-row">
+              <label for="filter-brightness">Brillo<span id="val-brightness" class="filter-val">100%</span></label>
+              <input id="filter-brightness" type="range" min="0.5" max="2" step="0.05" value="1" />
+            </div>
+            <div class="filter-row">
+              <label for="filter-contrast">Contraste<span id="val-contrast" class="filter-val">100%</span></label>
+              <input id="filter-contrast" type="range" min="0.5" max="2" step="0.05" value="1" />
+            </div>
+            <div class="filter-row">
+              <label for="filter-saturation">Saturación<span id="val-saturation" class="filter-val">100%</span></label>
+              <input id="filter-saturation" type="range" min="0" max="2" step="0.05" value="1" />
+            </div>
+            <div class="filter-row">
+              <label for="filter-blur">Desenfoque<span id="val-blur" class="filter-val">0px</span></label>
+              <input id="filter-blur" type="range" min="0" max="20" step="0.5" value="0" />
+            </div>
+            <button id="btn-reset-filters" class="btn-reset">Restablecer</button>
+          </div>
+        </div>
         <button id="btn-screen" class="control-btn" aria-label="Share screen" title="Share screen">
           <i data-lucide="monitor"></i>
         </button>
