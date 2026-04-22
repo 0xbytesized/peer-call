@@ -532,7 +532,7 @@ function setupCallControls() {
       // swap in the processed track instead of the raw one.
       let trackToPublish: MediaStreamTrack = rawTrack
       if (noiseSuppression) {
-        const processedStream = updateNoiseSuppressionSource(newStream)
+        const processedStream = await updateNoiseSuppressionSource(newStream)
         if (processedStream) {
           trackToPublish = processedStream.getAudioTracks()[0]
         } else {

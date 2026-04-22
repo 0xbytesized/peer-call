@@ -49,9 +49,11 @@ Several features (device switching, screen share, noise suppression) swap out th
 
 ### Noise suppression
 
-`src/noise-suppression.ts` wraps `@shiguredo/rnnoise-wasm`. It builds an AudioContext graph (`MediaStreamSource → ScriptProcessor → MediaStreamDestination`), feeds 480-sample frames to RNNoise (in-place write), and exposes a cleaned MediaStream.
+`src/noise-suppression.ts` wraps `@sapphi-red/web-noise-suppressor`, which ships an AudioWorkletProcessor with RNNoise bundled as WASM. The graph is `MediaStreamSource → RnnoiseWorkletNode → MediaStreamDestination`. All denoising runs on the audio render thread — no main-thread audio glitches and no `ScriptProcessorNode` deprecation warnings.
 
-Non-obvious: the module keeps a **cloned copy of the original audio track** so disabling noise suppression can restore bitwise-identical audio (the raw track may get mutated by the caller during track replacement). `ScriptProcessorNode` is deprecated but still the simplest path; migrating to `AudioWorklet` would require moving RNNoise into a worklet context.
+The `.wasm` and worklet `.js` are imported with Vite's `?url` suffix (see `src/vite-env.d.ts` for the `vite/client` types) and shipped as separate assets; `loadRnnoise` fetches them lazily on first enable. `audioContext.audioWorklet.addModule(workletUrl)` is called per-context inside `buildGraph`, so the graph can be torn down and rebuilt cheaply when the user switches mic.
+
+Non-obvious: the module keeps a **cloned copy of the original audio track** so disabling noise suppression can restore bitwise-identical audio (the raw track may get mutated by the caller during track replacement). If the user switches mic while NS is active, call `updateNoiseSuppressionSource(newStream)` rather than toggling off/on — it stops the stale clone, rebuilds the graph against the new mic, and returns a fresh processed stream to swap into `localStream` and remote senders.
 
 ### UI conventions
 

@@ -1,51 +1,49 @@
 /**
- * RNNoise noise suppression for PeerCall
+ * RNNoise noise suppression for PeerCall — AudioWorklet backend.
  *
- * Uses @shiguredo/rnnoise-wasm to process audio in the main thread.
- * Creates a processed MediaStream that replaces the original audio track.
+ * Uses `@sapphi-red/web-noise-suppressor`, which ships an AudioWorkletProcessor
+ * that runs RNNoise on the audio render thread (no more ScriptProcessor
+ * deprecation warning, no main-thread audio glitches).
  *
  * Key design points:
  * - A CLONE of the original audio track is stored so the caller can restore
  *   it bitwise-identical when disabling NS.
- * - Output uses a ring buffer primed with one silent frame. ScriptProcessor
- *   chunks (4096) and RNNoise frames (480) are not multiples, so without
- *   priming the output would underrun ~every 85 ms and produce clicks.
+ * - WASM bytes are fetched once and cached; the worklet module is installed
+ *   once per AudioContext.
  * - `updateSource()` lets callers rebuild the pipeline on a new mic without
  *   leaving a stale original-track clone behind.
  */
 
-import { Rnnoise } from '@shiguredo/rnnoise-wasm'
+import { loadRnnoise, RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
+import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url'
+import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url'
+import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url'
 
-let rnnoiseInstance: Rnnoise | null = null
-let denoiseState: ReturnType<Rnnoise['createDenoiseState']> | null = null
+let wasmBinary: ArrayBuffer | null = null
 let initPromise: Promise<void> | null = null
 let isActive = false
 
 // Audio processing nodes
 let audioContext: AudioContext | null = null
 let sourceNode: MediaStreamAudioSourceNode | null = null
+let rnnoiseNode: RnnoiseWorkletNode | null = null
 let destinationNode: MediaStreamAudioDestinationNode | null = null
-let processorNode: ScriptProcessorNode | null = null
 
 // Cloned original track, handed back when NS is disabled
 let originalAudioTrack: MediaStreamTrack | null = null
 
-const BUFFER_SIZE = 4096
-
 export async function initNoiseSuppression(): Promise<void> {
-  if (rnnoiseInstance && denoiseState) return
+  if (wasmBinary) return
   if (initPromise) {
     await initPromise
     return
   }
   initPromise = (async () => {
     try {
-      rnnoiseInstance = await Rnnoise.load()
-      denoiseState = rnnoiseInstance.createDenoiseState()
+      wasmBinary = await loadRnnoise({ url: rnnoiseWasmUrl, simdUrl: rnnoiseSimdWasmUrl })
     } catch (err) {
       console.error('[PeerCall] Failed to load RNNoise WASM:', err)
-      rnnoiseInstance = null
-      denoiseState = null
+      wasmBinary = null
     }
   })()
   try {
@@ -57,13 +55,17 @@ export async function initNoiseSuppression(): Promise<void> {
 
 function teardownGraph() {
   try {
-    processorNode?.disconnect()
+    rnnoiseNode?.disconnect()
     sourceNode?.disconnect()
   } catch {
     // disconnect() can throw if already disconnected; ignore
   }
-  if (processorNode) processorNode.onaudioprocess = null
-  processorNode = null
+  try {
+    rnnoiseNode?.destroy()
+  } catch {
+    // destroy() may race with context close
+  }
+  rnnoiseNode = null
   sourceNode = null
   destinationNode = null
   if (audioContext && audioContext.state !== 'closed') {
@@ -73,64 +75,23 @@ function teardownGraph() {
 }
 
 /**
- * Build the audio graph on top of `stream`'s first audio track and return
+ * Build the audio graph on top of `stream`'s audio track and return
  * a new MediaStream whose audio has been denoised.
  */
-function buildGraph(stream: MediaStream): MediaStream {
-  if (!rnnoiseInstance || !denoiseState) {
+async function buildGraph(stream: MediaStream): Promise<MediaStream> {
+  if (!wasmBinary) {
     throw new Error('RNNoise WASM not available')
   }
 
   audioContext = new AudioContext({ sampleRate: 48000 })
+  await audioContext.audioWorklet.addModule(rnnoiseWorkletUrl)
+
   sourceNode = audioContext.createMediaStreamSource(stream)
+  rnnoiseNode = new RnnoiseWorkletNode(audioContext, { maxChannels: 2, wasmBinary })
   destinationNode = audioContext.createMediaStreamDestination()
-  processorNode = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1)
 
-  const frameSize = rnnoiseInstance.frameSize
-  const inputBuffer = new Float32Array(frameSize)
-  let inputOffset = 0
-
-  // Ring buffer of processed frames, consumed by the output drain.
-  // Pre-fill with one silent frame so the first drain never underruns:
-  // bufferSize (4096) is not a multiple of frameSize (480), so without a
-  // cushion the output would get ~256 silence samples on the first chunk
-  // and then alternate underruns forever.
-  const outputRing: Float32Array[] = [new Float32Array(frameSize)]
-  let outputRingHead = 0
-
-  processorNode.onaudioprocess = (event) => {
-    if (!denoiseState) return
-    const input = event.inputBuffer.getChannelData(0)
-    const output = event.outputBuffer.getChannelData(0)
-
-    // 1. Accumulate input into frames and push processed frames to the ring
-    for (let i = 0; i < input.length; i++) {
-      inputBuffer[inputOffset++] = input[i]
-      if (inputOffset >= frameSize) {
-        denoiseState.processFrame(inputBuffer)
-        outputRing.push(inputBuffer.slice())
-        inputOffset = 0
-      }
-    }
-
-    // 2. Drain ring into output. Pad with silence only as a safety net —
-    // the pre-fill should keep the ring non-empty under normal operation.
-    for (let i = 0; i < output.length; i++) {
-      if (outputRing.length === 0) {
-        output[i] = 0
-        continue
-      }
-      const head = outputRing[0]
-      output[i] = head[outputRingHead++]
-      if (outputRingHead >= head.length) {
-        outputRing.shift()
-        outputRingHead = 0
-      }
-    }
-  }
-
-  sourceNode.connect(processorNode)
-  processorNode.connect(destinationNode)
+  sourceNode.connect(rnnoiseNode)
+  rnnoiseNode.connect(destinationNode)
 
   return new MediaStream([destinationNode.stream.getAudioTracks()[0], ...stream.getVideoTracks()])
 }
@@ -141,7 +102,7 @@ function buildGraph(stream: MediaStream): MediaStream {
  */
 export async function enableNoiseSuppression(stream: MediaStream): Promise<MediaStream> {
   await initNoiseSuppression()
-  if (!rnnoiseInstance || !denoiseState) {
+  if (!wasmBinary) {
     throw new Error('RNNoise WASM not available')
   }
 
@@ -155,7 +116,7 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
   // Clone the original so disable can hand it back later.
   const clone = audioTracks[0].clone()
   try {
-    const processedStream = buildGraph(stream)
+    const processedStream = await buildGraph(stream)
     originalAudioTrack = clone
     isActive = true
     return processedStream
@@ -175,7 +136,7 @@ export async function enableNoiseSuppression(stream: MediaStream): Promise<Media
  *
  * Returns null if NS is not currently active.
  */
-export function updateNoiseSuppressionSource(stream: MediaStream): MediaStream | null {
+export async function updateNoiseSuppressionSource(stream: MediaStream): Promise<MediaStream | null> {
   if (!isActive) return null
   const audioTracks = stream.getAudioTracks()
   if (audioTracks.length === 0) return null
@@ -188,7 +149,7 @@ export function updateNoiseSuppressionSource(stream: MediaStream): MediaStream |
 
   const clone = audioTracks[0].clone()
   try {
-    const processedStream = buildGraph(stream)
+    const processedStream = await buildGraph(stream)
     originalAudioTrack = clone
     return processedStream
   } catch (err) {
@@ -233,7 +194,5 @@ export function isNoiseSuppressionActive(): boolean {
 export function cleanupNoiseSuppression(): void {
   const leftover = disableNoiseSuppression()
   leftover?.stop()
-  denoiseState?.destroy()
-  denoiseState = null
-  rnnoiseInstance = null
+  wasmBinary = null
 }
