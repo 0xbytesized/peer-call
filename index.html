@@ -65,6 +65,77 @@
       </div>
     </div>
 
+    <!-- SETUP (green room) -->
+    <div id="setup" class="view hidden">
+      <div class="setup-container">
+        <div class="setup-preview">
+          <video id="setup-video" autoplay playsinline muted class="mirror"></video>
+          <div id="setup-no-camera" class="setup-no-camera hidden">
+            <span>📷</span>
+            <p>Cámara no disponible</p>
+          </div>
+          <div class="setup-mic-meter" aria-hidden="true">
+            <div id="setup-mic-level" class="setup-mic-level-fill"></div>
+          </div>
+        </div>
+        <div class="setup-controls">
+          <h2 id="setup-title">Preparados para entrar</h2>
+          <p id="setup-hint" class="setup-hint"></p>
+
+          <label class="setup-field">
+            <span>Tu nombre</span>
+            <input id="setup-name" type="text" placeholder="Tu nombre" maxlength="24" autocomplete="off" />
+          </label>
+
+          <label class="setup-field">
+            <span>Cámara</span>
+            <select id="setup-select-camera"></select>
+          </label>
+
+          <label class="setup-field">
+            <span>Micrófono</span>
+            <select id="setup-select-mic"></select>
+          </label>
+
+          <label class="setup-field" id="setup-speaker-field">
+            <span>Altavoz</span>
+            <select id="setup-select-speaker"></select>
+          </label>
+
+          <label class="setup-toggle">
+            <input id="setup-toggle-noise" type="checkbox" />
+            <span>Cancelación de ruido</span>
+          </label>
+
+          <details class="setup-filters">
+            <summary>Filtros de cámara</summary>
+            <div class="filter-row">
+              <label for="setup-filter-brightness">Brillo<span id="setup-val-brightness" class="filter-val">100%</span></label>
+              <input id="setup-filter-brightness" type="range" min="0.5" max="2" step="0.05" value="1" />
+            </div>
+            <div class="filter-row">
+              <label for="setup-filter-contrast">Contraste<span id="setup-val-contrast" class="filter-val">100%</span></label>
+              <input id="setup-filter-contrast" type="range" min="0.5" max="2" step="0.05" value="1" />
+            </div>
+            <div class="filter-row">
+              <label for="setup-filter-saturation">Saturación<span id="setup-val-saturation" class="filter-val">100%</span></label>
+              <input id="setup-filter-saturation" type="range" min="0" max="2" step="0.05" value="1" />
+            </div>
+            <div class="filter-row">
+              <label for="setup-filter-blur">Desenfoque<span id="setup-val-blur" class="filter-val">0px</span></label>
+              <input id="setup-filter-blur" type="range" min="0" max="20" step="0.5" value="0" />
+            </div>
+            <button id="setup-btn-reset-filters" class="btn-reset">Restablecer</button>
+          </details>
+
+          <div class="setup-actions">
+            <button id="btn-setup-cancel" class="btn btn-secondary">Cancelar</button>
+            <button id="btn-setup-join" class="btn btn-primary">Unirse</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- CALL VIEW -->
     <div id="call" class="view hidden">
       <div id="video-grid" class="video-grid"></div>

@@ -20,9 +20,23 @@ PeerCall is a **zero-backend** WebRTC video-conferencing app. Everything runs in
 
 ### Entry flow
 
-1. `index.html` is a single-page app with three overlay views: `#lobby`, `#call`, `#connecting`. `src/main.ts` toggles them via `.hidden`.
-2. On load, `main.ts` reads `window.location.hash` / `?room=` — if present, it jumps straight into `joinRoom(code)`; otherwise the lobby is shown.
-3. After create/join, `requestMedia()` cascades through fallbacks: (audio+video) → (video-only) → (audio-only) → (no media placeholder). This is important for mobile browsers that reject combined permission requests.
+1. `index.html` is a single-page app with four overlay views: `#lobby`, `#setup`, `#call`, `#connecting`. `src/main.ts` toggles them via `.hidden`.
+2. On load, `main.ts` reads `window.location.hash` / `?room=` — if present, it jumps into `joinRoom(code)`; otherwise the lobby is shown.
+3. `createRoom` / `joinRoom` **do not create the PeerJS peer yet** — they set `pendingSetup = { mode, roomCode? }`, construct a `PeerCallManager`, and call `startSetup()` which enters the **green-room view**: media is acquired via `manager.startMedia()`, camera pipeline is wired up, mic-level meter is attached, and the user can adjust name/camera/mic/speaker/noise suppression/filters against a live preview. Nothing leaves the browser at this point.
+4. When the user clicks "Unirse", `confirmSetup()` runs `manager.createRoom()` or `manager.joinRoom(code)` (the actual signaling), and `showCallView()` promotes the already-configured `localStream` into the call grid via `addLocalVideo()`.
+5. `acquireMediaForSetup()` cascades through fallbacks: (audio+video) → (audio-only) → (no media placeholder). Joining with no media is allowed; the user can enable camera/mic later from the call-view controls.
+
+### Shared device actions
+
+`switchMic`, `switchCamera`, `switchSpeaker`, `setNoiseSuppressionEnabled` live at module top in `main.ts` and are used by both the setup view and the call-view panels (camera popover, settings panel). They own the full track-swap: acquire new device, rebuild the noise-suppression / camera pipelines as needed, swap into `localStream`, and `replaceTrack` on every outgoing RTP sender. The setup-view handlers and call-view handlers both delegate to these; UI-sync helpers like `updateNoiseSuppressionUI()` update both sets of controls.
+
+### Peer disconnection handling
+
+Cleanup has two complementary paths:
+
+1. **Our side** — `window` listens for both `pagehide` and `beforeunload` and calls `manager.leave()`, which closes every DataConnection + MediaConnection and destroys the Peer. This gives remotes a clean close signal on normal tab close / navigation so their DataConnection `close` event fires immediately (instead of waiting on ICE timeout). `leave()` is idempotent via `hasLeft`.
+
+2. **Remote side** — `watchConnection()` in `peer.ts` attaches `iceconnectionstatechange` to each MediaConnection's underlying `RTCPeerConnection`. `failed`/`closed` trigger immediate `removePeer`. `disconnected` starts a 3-second timer (cleared on recovery to `connected`/`completed`) — this catches the force-kill case where the peer's browser crashes without sending a proper close. Without this, remotes would stare at a frozen frame for ~15s until the default ICE timeout.
 
 ### Peer mesh
 

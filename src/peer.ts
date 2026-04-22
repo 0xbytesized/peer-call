@@ -376,15 +376,85 @@ export class PeerCallManager {
 
   // ─── Disconnect ───
 
+  private hasLeft = false
+
   leave() {
+    if (this.hasLeft) return
+    this.hasLeft = true
     for (const remotePeer of this.peers.values()) {
-      remotePeer.conn.close()
-      remotePeer.call?.close()
+      try {
+        remotePeer.conn.close()
+      } catch {
+        // ignore
+      }
+      try {
+        remotePeer.call?.close()
+      } catch {
+        // ignore
+      }
     }
     this.localStream?.getTracks().forEach((t) => t.stop())
     this.screenStream?.getTracks().forEach((t) => t.stop())
-    this.peer?.destroy()
+    try {
+      this.peer?.destroy()
+    } catch {
+      // ignore
+    }
+    this.peer = null
     this.peers.clear()
+  }
+
+  /** Remove a peer and notify listeners. Idempotent — safe to call repeatedly. */
+  private removePeer(peerId: string, reason = 'left') {
+    const peer = this.peers.get(peerId)
+    if (!peer) return
+    console.log(`[PeerCall] Removing peer ${peerId} (${reason})`)
+    try {
+      peer.call?.close()
+    } catch {
+      // ignore
+    }
+    try {
+      peer.conn.close()
+    } catch {
+      // ignore
+    }
+    this.peers.delete(peerId)
+    this.emit({ type: 'peer-left', peerId })
+  }
+
+  /**
+   * Watch the MediaConnection's underlying RTCPeerConnection for disconnection.
+   * When the peer's browser dies (tab closed without a clean close event,
+   * crash, network drop), ICE stops flowing and the state transitions through
+   * `disconnected` → `failed`. We treat `failed`/`closed` as terminal, and
+   * give `disconnected` a 3s grace period before giving up (it can recover).
+   */
+  private watchConnection(call: MediaConnection, peerId: string) {
+    const pc = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection
+    if (!pc) return
+
+    let disconnectTimer: ReturnType<typeof setTimeout> | null = null
+    const clearDisconnectTimer = () => {
+      if (disconnectTimer !== null) {
+        clearTimeout(disconnectTimer)
+        disconnectTimer = null
+      }
+    }
+
+    pc.addEventListener('iceconnectionstatechange', () => {
+      const state = pc.iceConnectionState
+      if (state === 'disconnected') {
+        if (disconnectTimer === null) {
+          disconnectTimer = setTimeout(() => this.removePeer(peerId, 'ice-disconnected'), 3000)
+        }
+      } else if (state === 'failed' || state === 'closed') {
+        clearDisconnectTimer()
+        this.removePeer(peerId, `ice-${state}`)
+      } else if (state === 'connected' || state === 'completed') {
+        clearDisconnectTimer()
+      }
+    })
   }
 
   // ─── Internal ───
@@ -547,6 +617,8 @@ export class PeerCallManager {
     call.on('close', () => {
       this.emit({ type: 'stream-removed', peerId })
     })
+
+    this.watchConnection(call, peerId)
   }
 
   private handleIncomingCall(call: MediaConnection) {
@@ -568,6 +640,8 @@ export class PeerCallManager {
     call.on('close', () => {
       this.emit({ type: 'stream-removed', peerId: call.peer })
     })
+
+    this.watchConnection(call, call.peer)
   }
 
   private broadcastData(msg: PeerMessage) {

@@ -89,6 +89,29 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const lobby = $<HTMLDivElement>('lobby')
 const callView = $<HTMLDivElement>('call')
 const connecting = $<HTMLDivElement>('connecting')
+const setupView = $<HTMLDivElement>('setup')
+const setupVideo = $<HTMLVideoElement>('setup-video')
+const setupNoCamera = $<HTMLDivElement>('setup-no-camera')
+const setupMicLevel = $<HTMLDivElement>('setup-mic-level')
+const setupTitle = $<HTMLHeadingElement>('setup-title')
+const setupHint = $<HTMLParagraphElement>('setup-hint')
+const setupName = $<HTMLInputElement>('setup-name')
+const setupSelectCamera = $<HTMLSelectElement>('setup-select-camera')
+const setupSelectMic = $<HTMLSelectElement>('setup-select-mic')
+const setupSelectSpeaker = $<HTMLSelectElement>('setup-select-speaker')
+const setupSpeakerField = $<HTMLLabelElement>('setup-speaker-field')
+const setupToggleNoise = $<HTMLInputElement>('setup-toggle-noise')
+const setupFilterBrightness = $<HTMLInputElement>('setup-filter-brightness')
+const setupFilterContrast = $<HTMLInputElement>('setup-filter-contrast')
+const setupFilterSaturation = $<HTMLInputElement>('setup-filter-saturation')
+const setupFilterBlur = $<HTMLInputElement>('setup-filter-blur')
+const setupValBrightness = $<HTMLSpanElement>('setup-val-brightness')
+const setupValContrast = $<HTMLSpanElement>('setup-val-contrast')
+const setupValSaturation = $<HTMLSpanElement>('setup-val-saturation')
+const setupValBlur = $<HTMLSpanElement>('setup-val-blur')
+const setupBtnReset = $<HTMLButtonElement>('setup-btn-reset-filters')
+const btnSetupCancel = $<HTMLButtonElement>('btn-setup-cancel')
+const btnSetupJoin = $<HTMLButtonElement>('btn-setup-join')
 const connectingDetail = $<HTMLParagraphElement>('connecting-detail')
 const videoGrid = $<HTMLDivElement>('video-grid')
 const chatPanel = $<HTMLDivElement>('chat-panel')
@@ -188,48 +211,298 @@ function getUserName(): string {
   return name
 }
 
-// ─── Create room ───
+// ─── Create / Join: route via setup screen ───
+
+type PendingSetup = { mode: 'create' } | { mode: 'join'; roomCode: string }
+let pendingSetup: PendingSetup | null = null
 
 async function createRoom(name: string) {
-  showView('connecting')
-  connectingDetail.textContent = 'Creating room...'
+  pendingSetup = { mode: 'create' }
+  await startSetup(name)
+}
 
+async function joinRoom(code: string, name?: string) {
+  pendingSetup = { mode: 'join', roomCode: code }
+  await startSetup(name || getUserName())
+}
+
+async function startSetup(name: string) {
+  showView('setup')
   manager = new PeerCallManager(name || undefined)
   setupManagerEvents(manager)
 
+  // Fill UI from saved state
+  setupName.value = manager.myName
+  syncSetupFilterInputs()
+  setupToggleNoise.checked = false
+  if (pendingSetup?.mode === 'join') {
+    setupTitle.textContent = 'Preparados para unirte'
+    setupHint.textContent = `Sala: ${pendingSetup.roomCode}`
+  } else {
+    setupTitle.textContent = 'Preparados para empezar'
+    setupHint.textContent = 'Comprueba tu cámara y audio antes de crear la sala'
+  }
+
+  await acquireMediaForSetup()
+  await populateSetupDevices()
+  attachSetupHandlers()
+}
+
+async function acquireMediaForSetup() {
+  const prefs = getDevicePrefs()
+  const deviceIds = { mic: prefs.mic, camera: prefs.camera }
   try {
-    const code = await manager.createRoom()
-    window.history.replaceState(null, '', `#${code}`)
-    showCallView(code)
-    await requestMedia()
-  } catch (err: unknown) {
-    showView('lobby')
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    alert('Could not create room: ' + message)
-    console.error('[PeerCall] createRoom failed:', err)
+    localStream = await manager.startMedia(true, true, deviceIds)
+    mediaReady = true
+    micOn = true
+    cameraOn = true
+    if (pipelineSupported) {
+      await applyCameraPipeline()
+    } else {
+      applyCssFiltersToLocalPreview()
+    }
+    setupVideo.srcObject = localStream
+    setupNoCamera.classList.add('hidden')
+    startMicMeter()
+  } catch {
+    try {
+      localStream = await manager.startMedia(false, true, deviceIds)
+      mediaReady = true
+      micOn = true
+      cameraOn = false
+      setupVideo.srcObject = null
+      setupNoCamera.classList.remove('hidden')
+      startMicMeter()
+    } catch {
+      mediaReady = false
+      micOn = false
+      cameraOn = false
+      localStream = null
+      setupVideo.srcObject = null
+      setupNoCamera.classList.remove('hidden')
+    }
   }
 }
 
-// ─── Join room ───
+async function populateSetupDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    const saved = getDevicePrefs()
+    const currentMic = localStream?.getAudioTracks()[0]?.getSettings().deviceId
+    const currentCamera = currentCameraDeviceId()
 
-async function joinRoom(code: string, name?: string) {
+    fillSelect(
+      setupSelectCamera,
+      devices.filter((d) => d.kind === 'videoinput'),
+      'Cámara',
+      saved.camera || currentCamera,
+    )
+    fillSelect(
+      setupSelectMic,
+      devices.filter((d) => d.kind === 'audioinput'),
+      'Micrófono',
+      saved.mic || currentMic,
+    )
+    const outputs = devices.filter((d) => d.kind === 'audiooutput')
+    if (!sinkSupported || outputs.length === 0) {
+      setupSpeakerField.classList.add('hidden')
+    } else {
+      setupSpeakerField.classList.remove('hidden')
+      fillSelect(setupSelectSpeaker, outputs, 'Altavoz', saved.speaker)
+    }
+  } catch (err) {
+    console.error('[PeerCall] enumerateDevices failed:', err)
+  }
+}
+
+function fillSelect(sel: HTMLSelectElement, devices: MediaDeviceInfo[], genericLabel: string, preferred?: string) {
+  sel.innerHTML = ''
+  if (devices.length === 0) {
+    const opt = document.createElement('option')
+    opt.value = ''
+    opt.textContent = `Sin ${genericLabel.toLowerCase()}`
+    opt.disabled = true
+    sel.appendChild(opt)
+    return
+  }
+  devices.forEach((d, i) => {
+    const opt = document.createElement('option')
+    opt.value = d.deviceId
+    opt.textContent = d.label || `${genericLabel} ${i + 1}`
+    sel.appendChild(opt)
+  })
+  if (preferred && devices.some((d) => d.deviceId === preferred)) {
+    sel.value = preferred
+  }
+}
+
+function syncSetupFilterInputs() {
+  setupFilterBrightness.value = String(cameraFilters.brightness)
+  setupFilterContrast.value = String(cameraFilters.contrast)
+  setupFilterSaturation.value = String(cameraFilters.saturation)
+  setupFilterBlur.value = String(cameraFilters.blur)
+  setupValBrightness.textContent = `${Math.round(cameraFilters.brightness * 100)}%`
+  setupValContrast.textContent = `${Math.round(cameraFilters.contrast * 100)}%`
+  setupValSaturation.textContent = `${Math.round(cameraFilters.saturation * 100)}%`
+  setupValBlur.textContent = `${cameraFilters.blur}px`
+}
+
+let setupHandlersAttached = false
+function attachSetupHandlers() {
+  if (setupHandlersAttached) return
+  setupHandlersAttached = true
+
+  setupName.addEventListener('change', () => {
+    const v = setupName.value.trim()
+    if (v) {
+      localStorage.setItem('peercall-name', v)
+      manager.rename(v)
+    }
+  })
+
+  setupSelectCamera.addEventListener('change', async () => {
+    const id = setupSelectCamera.value
+    if (id) await switchCamera(id)
+  })
+
+  setupSelectMic.addEventListener('change', async () => {
+    const id = setupSelectMic.value
+    if (id) await switchMic(id)
+  })
+
+  setupSelectSpeaker.addEventListener('change', async () => {
+    const id = setupSelectSpeaker.value
+    if (id) await switchSpeaker(id)
+  })
+
+  setupToggleNoise.addEventListener('change', async () => {
+    await setNoiseSuppressionEnabled(setupToggleNoise.checked)
+  })
+
+  const onFilterChange = () => {
+    cameraFilters = {
+      brightness: parseFloat(setupFilterBrightness.value),
+      contrast: parseFloat(setupFilterContrast.value),
+      saturation: parseFloat(setupFilterSaturation.value),
+      blur: parseFloat(setupFilterBlur.value),
+    }
+    if (cameraPipeline) cameraPipeline.setFilters(cameraFilters)
+    else applyCssFiltersToLocalPreview()
+    saveFilters(cameraFilters)
+    syncSetupFilterInputs()
+  }
+  setupFilterBrightness.addEventListener('input', onFilterChange)
+  setupFilterContrast.addEventListener('input', onFilterChange)
+  setupFilterSaturation.addEventListener('input', onFilterChange)
+  setupFilterBlur.addEventListener('input', onFilterChange)
+
+  setupBtnReset.addEventListener('click', () => {
+    cameraFilters = { ...DEFAULT_FILTERS }
+    if (cameraPipeline) cameraPipeline.setFilters(cameraFilters)
+    else applyCssFiltersToLocalPreview()
+    saveFilters(cameraFilters)
+    syncSetupFilterInputs()
+  })
+
+  btnSetupCancel.addEventListener('click', () => {
+    cancelSetup()
+  })
+
+  btnSetupJoin.addEventListener('click', async () => {
+    await confirmSetup()
+  })
+}
+
+function cancelSetup() {
+  stopMicMeter()
+  cameraPipeline?.stop()
+  cameraPipeline = null
+  manager?.leave()
+  localStream = null
+  mediaReady = false
+  setupVideo.srcObject = null
+  pendingSetup = null
+  window.history.replaceState(null, '', window.location.pathname)
+  showView('lobby')
+}
+
+async function confirmSetup() {
+  if (!pendingSetup) return
+  const intent = pendingSetup
+  const name = setupName.value.trim()
+  if (name) {
+    localStorage.setItem('peercall-name', name)
+    manager.rename(name)
+  }
+
+  btnSetupJoin.disabled = true
   showView('connecting')
-  connectingDetail.textContent = `Joining room ${code}...`
-
-  manager = new PeerCallManager(name || undefined)
-  setupManagerEvents(manager)
+  connectingDetail.textContent = intent.mode === 'create' ? 'Creando sala...' : 'Uniéndose...'
 
   try {
-    await manager.joinRoom(code)
-    window.history.replaceState(null, '', `#${code}`)
-    showCallView(code)
-    await requestMedia()
+    if (intent.mode === 'create') {
+      const code = await manager.createRoom()
+      window.history.replaceState(null, '', `#${code}`)
+      showCallView(code)
+    } else {
+      await manager.joinRoom(intent.roomCode)
+      window.history.replaceState(null, '', `#${intent.roomCode}`)
+      showCallView(intent.roomCode)
+    }
+    pendingSetup = null
+    stopMicMeter()
   } catch (err: unknown) {
-    showView('lobby')
     const message = err instanceof Error ? err.message : 'Unknown error'
-    alert('Could not join room: ' + message)
-    console.error('[PeerCall] joinRoom failed:', err)
+    alert((intent.mode === 'create' ? 'No se pudo crear la sala: ' : 'No se pudo unir: ') + message)
+    console.error('[PeerCall] confirmSetup failed:', err)
+    showView('setup')
+  } finally {
+    btnSetupJoin.disabled = false
   }
+}
+
+// ─── Mic level meter (setup screen) ───
+
+let micMeterCtx: AudioContext | null = null
+let micMeterRaf = 0
+
+function startMicMeter() {
+  stopMicMeter()
+  if (!localStream) return
+  const audioTrack = localStream.getAudioTracks()[0]
+  if (!audioTrack) return
+
+  try {
+    micMeterCtx = new AudioContext()
+    const source = micMeterCtx.createMediaStreamSource(new MediaStream([audioTrack]))
+    const analyser = micMeterCtx.createAnalyser()
+    analyser.fftSize = 256
+    source.connect(analyser)
+    const data = new Uint8Array(analyser.frequencyBinCount)
+
+    const tick = () => {
+      analyser.getByteTimeDomainData(data)
+      let peak = 0
+      for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i] - 128)
+        if (v > peak) peak = v
+      }
+      const pct = Math.min(100, (peak / 128) * 200)
+      setupMicLevel.style.width = `${pct}%`
+      micMeterRaf = requestAnimationFrame(tick)
+    }
+    tick()
+  } catch (err) {
+    console.error('[PeerCall] mic meter failed:', err)
+  }
+}
+
+function stopMicMeter() {
+  cancelAnimationFrame(micMeterRaf)
+  micMeterRaf = 0
+  micMeterCtx?.close().catch(() => {})
+  micMeterCtx = null
+  setupMicLevel.style.width = '0%'
 }
 
 // ─── Device preferences (persisted in localStorage) ───
@@ -345,10 +618,10 @@ async function applyCameraPipeline() {
 }
 
 function applyCssFiltersToLocalPreview() {
+  const css = filtersToCss(cameraFilters)
   const localTile = videoTiles.get('local')
-  if (localTile) {
-    localTile.video.style.filter = filtersToCss(cameraFilters)
-  }
+  if (localTile) localTile.video.style.filter = css
+  setupVideo.style.filter = css
 }
 
 /**
@@ -362,6 +635,7 @@ function refreshLocalPreview() {
   if (localTile && localStream) {
     localTile.video.srcObject = localStream
   }
+  if (localStream) setupVideo.srcObject = localStream
 }
 
 /**
@@ -374,46 +648,113 @@ function currentCameraDeviceId(): string | undefined {
   return raw?.getSettings().deviceId || getDevicePrefs().camera
 }
 
-// ─── Media request ───
+// ─── Shared device/filter actions (used by setup view + call-view panels) ───
 
-async function requestMedia() {
-  const prefs = getDevicePrefs()
-  const deviceIds = { mic: prefs.mic, camera: prefs.camera }
+async function switchMic(deviceId: string) {
+  saveDevicePref('mic', deviceId)
+  if (!localStream) return
   try {
-    localStream = await manager.startMedia(true, true, deviceIds)
-    addLocalVideo(localStream)
-    mediaReady = true
-    updateMicCameraButtons()
-    await applyCameraPipeline()
-  } catch {
-    try {
-      localStream = await manager.startMedia(false, true, deviceIds)
-      addLocalVideo(localStream)
-      cameraOn = false
-      mediaReady = true
-      updateMicCameraButtons()
-      btnCamera.classList.add('off')
-    } catch {
-      try {
-        localStream = await manager.startMedia(true, false, deviceIds)
-        addLocalVideo(localStream)
-        micOn = false
-        mediaReady = true
-        updateMicCameraButtons()
-        btnMic.classList.add('off')
-        await applyCameraPipeline()
-      } catch {
-        addNoMediaTile()
-        micOn = false
-        cameraOn = false
-        mediaReady = false
-        updateMicCameraButtons()
-        btnMic.classList.add('off')
-        btnCamera.classList.add('off')
+    const newTrack = await getMicTrack(deviceId, !noiseSuppression)
+    let trackToPublish: MediaStreamTrack = newTrack
+    if (noiseSuppression) {
+      const newStream = new MediaStream([newTrack])
+      const processedStream = await updateNoiseSuppressionSource(newStream)
+      if (processedStream) {
+        trackToPublish = processedStream.getAudioTracks()[0]
+      } else {
+        newTrack.stop()
+        trackToPublish = await getMicTrack(deviceId, true)
+        noiseSuppression = false
+        updateNoiseSuppressionUI()
       }
+    }
+    await replaceLocalAudioTrack(trackToPublish)
+    if (micMeterCtx) startMicMeter()
+  } catch (err) {
+    console.error('[PeerCall] switchMic failed:', err)
+  }
+}
+
+async function switchCamera(deviceId: string) {
+  saveDevicePref('camera', deviceId)
+  if (!localStream) return
+  try {
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        deviceId: { exact: deviceId },
+      },
+    })
+    const rawTrack = newStream.getVideoTracks()[0]
+    if (!rawTrack) return
+
+    if (pipelineSupported) {
+      cameraPipeline?.stop()
+      cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
+      await replaceLocalVideoTrack(cameraPipeline.output, false)
+    } else {
+      await replaceLocalVideoTrack(rawTrack, true)
+      applyCssFiltersToLocalPreview()
+    }
+    refreshLocalPreview()
+  } catch (err) {
+    console.error('[PeerCall] switchCamera failed:', err)
+  }
+}
+
+async function switchSpeaker(deviceId: string) {
+  saveDevicePref('speaker', deviceId)
+  const targets: HTMLVideoElement[] = [setupVideo, ...Array.from(videoTiles.values()).map((t) => t.video)]
+  for (const el of targets) {
+    try {
+      await (el as unknown as { setSinkId?: (id: string) => Promise<void> }).setSinkId?.(deviceId)
+    } catch (err) {
+      console.error('[PeerCall] setSinkId failed:', err)
     }
   }
 }
+
+async function setNoiseSuppressionEnabled(enabled: boolean) {
+  if (!localStream) return
+  if (enabled === noiseSuppression) return
+  const deviceId = currentMicDeviceId()
+
+  if (enabled) {
+    try {
+      const cleanTrack = await getMicTrack(deviceId, false)
+      const cleanStream = new MediaStream([cleanTrack])
+      const processedStream = await enableNoiseSuppression(cleanStream)
+      const processedTrack = processedStream.getAudioTracks()[0]
+      if (processedTrack) await replaceLocalAudioTrack(processedTrack)
+      noiseSuppression = true
+    } catch (err) {
+      console.error('[PeerCall] NS enable failed:', err)
+      disableNoiseSuppression()?.stop()
+      noiseSuppression = false
+    }
+  } else {
+    try {
+      disableNoiseSuppression()?.stop()
+      const restoredTrack = await getMicTrack(deviceId, true)
+      await replaceLocalAudioTrack(restoredTrack)
+    } catch (err) {
+      console.error('[PeerCall] NS disable failed:', err)
+    }
+    noiseSuppression = false
+  }
+  if (micMeterCtx) startMicMeter()
+  updateNoiseSuppressionUI()
+}
+
+function updateNoiseSuppressionUI() {
+  btnNoise.classList.toggle('active', noiseSuppression)
+  replaceIcon(btnNoise, noiseSuppression ? 'volume-2' : 'volume-x')
+  setupToggleNoise.checked = noiseSuppression
+}
+
+// ─── Media request ───
 
 function addNoMediaTile() {
   const tile = createVideoTile('local', manager.myName, true)
@@ -464,15 +805,26 @@ function setupManagerEvents(mgr: PeerCallManager) {
 
 // ─── UI Helpers ───
 
-function showView(name: 'lobby' | 'call' | 'connecting') {
+function showView(name: 'lobby' | 'call' | 'connecting' | 'setup') {
   lobby.classList.toggle('hidden', name !== 'lobby')
   callView.classList.toggle('hidden', name !== 'call')
   connecting.classList.toggle('hidden', name !== 'connecting')
+  setupView.classList.toggle('hidden', name !== 'setup')
 }
 
 function showCallView(code: string) {
   roomCode.textContent = code
   showView('call')
+  if (localStream && localStream.getVideoTracks().length > 0) {
+    addLocalVideo(localStream)
+  } else {
+    addNoMediaTile()
+  }
+  // Sync the call-view control states with whatever was configured in setup
+  updateMicCameraButtons()
+  btnCamera.classList.toggle('off', !cameraOn)
+  btnMic.classList.toggle('off', !micOn)
+  updateNoiseSuppressionUI()
   setupCallControls()
 }
 
@@ -555,45 +907,7 @@ function setupCallControls() {
   // ─── Noise suppression ───
 
   btnNoise.addEventListener('click', async () => {
-    if (!localStream) return
-    const deviceId = currentMicDeviceId()
-
-    if (!noiseSuppression) {
-      try {
-        // Re-acquire the mic with browser NS + AGC off so RNNoise sees
-        // untouched audio. Browser NS alters the spectrum and AGC pumps
-        // the level — both break RNNoise's trained assumptions.
-        const cleanTrack = await getMicTrack(deviceId, false)
-        const cleanStream = new MediaStream([cleanTrack])
-        const processedStream = await enableNoiseSuppression(cleanStream)
-        const processedTrack = processedStream.getAudioTracks()[0]
-        if (processedTrack) {
-          await replaceLocalAudioTrack(processedTrack)
-        }
-        noiseSuppression = true
-        btnNoise.classList.add('active')
-        replaceIcon(btnNoise, 'volume-2')
-      } catch (err) {
-        console.error('[PeerCall] Failed to enable noise suppression:', err)
-        disableNoiseSuppression()?.stop()
-        noiseSuppression = false
-        btnNoise.classList.remove('active')
-        replaceIcon(btnNoise, 'volume-x')
-      }
-    } else {
-      try {
-        disableNoiseSuppression()?.stop()
-        // Re-acquire with browser NS + AGC back on so the user still gets
-        // some noise suppression when RNNoise is off.
-        const restoredTrack = await getMicTrack(deviceId, true)
-        await replaceLocalAudioTrack(restoredTrack)
-      } catch (err) {
-        console.error('[PeerCall] Failed to disable noise suppression:', err)
-      }
-      noiseSuppression = false
-      btnNoise.classList.remove('active')
-      replaceIcon(btnNoise, 'volume-x')
-    }
+    await setNoiseSuppressionEnabled(!noiseSuppression)
   })
 
   btnChat.addEventListener('click', () => {
@@ -727,84 +1041,19 @@ function setupCallControls() {
 
   selectAudioInput.addEventListener('change', async () => {
     const deviceId = selectAudioInput.value
-    if (!deviceId) return
-    saveDevicePref('mic', deviceId)
-    try {
-      if (!localStream) return
-
-      // Browser NS off when RNNoise is handling it, on otherwise.
-      const newTrack = await getMicTrack(deviceId, !noiseSuppression)
-
-      let trackToPublish: MediaStreamTrack = newTrack
-      if (noiseSuppression) {
-        const newStream = new MediaStream([newTrack])
-        const processedStream = await updateNoiseSuppressionSource(newStream)
-        if (processedStream) {
-          trackToPublish = processedStream.getAudioTracks()[0]
-        } else {
-          // Pipeline failed — release the NS-off track and re-acquire one
-          // with browser NS on so the user isn't left with raw mic audio.
-          newTrack.stop()
-          trackToPublish = await getMicTrack(deviceId, true)
-          noiseSuppression = false
-          btnNoise.classList.remove('active')
-          replaceIcon(btnNoise, 'volume-x')
-        }
-      }
-
-      await replaceLocalAudioTrack(trackToPublish)
-    } catch (err) {
-      console.error('[PeerCall] Failed to switch mic:', err)
-    }
+    if (deviceId) await switchMic(deviceId)
   })
 
   if (sinkSupported) {
     selectAudioOutput.addEventListener('change', async () => {
       const deviceId = selectAudioOutput.value
-      if (!deviceId) return
-      saveDevicePref('speaker', deviceId)
-      for (const tile of videoTiles.values()) {
-        try {
-          await (tile.video as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(deviceId)
-        } catch (err) {
-          console.error('[PeerCall] Failed to set speaker:', err)
-        }
-      }
+      if (deviceId) await switchSpeaker(deviceId)
     })
   }
 
   selectVideoInput.addEventListener('change', async () => {
     const deviceId = selectVideoInput.value
-    if (!deviceId) return
-    saveDevicePref('camera', deviceId)
-    try {
-      if (!localStream) return
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          deviceId: { exact: deviceId },
-        },
-      })
-      const rawTrack = newStream.getVideoTracks()[0]
-      if (!rawTrack) return
-
-      if (pipelineSupported) {
-        // Tear down the old pipeline (which stops the old raw track) and
-        // start a fresh one on the new camera.
-        cameraPipeline?.stop()
-        cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
-        await replaceLocalVideoTrack(cameraPipeline.output, false)
-      } else {
-        // No pipeline — publish the new raw track directly; CSS handles local filtering.
-        await replaceLocalVideoTrack(rawTrack, true)
-        applyCssFiltersToLocalPreview()
-      }
-      refreshLocalPreview()
-    } catch (err) {
-      console.error('[PeerCall] Failed to switch camera:', err)
-    }
+    if (deviceId) await switchCamera(deviceId)
   })
 }
 
@@ -1053,6 +1302,21 @@ window.addEventListener('hashchange', () => {
   const code = window.location.hash.slice(1).trim()
   if (code && code.length >= 4) joinRoom(code)
 })
+
+// ─── Tab close / navigation cleanup ───
+// Close connections gracefully so remote peers see us drop out immediately
+// instead of waiting for ICE timeout (~15s of frozen video otherwise).
+// `pagehide` covers tab close, navigation, and iOS Safari; `beforeunload`
+// covers extra desktop cases. Both calling leave() is idempotent.
+const cleanupOnUnload = () => {
+  try {
+    manager?.leave()
+  } catch {
+    // ignore
+  }
+}
+window.addEventListener('pagehide', cleanupOnUnload)
+window.addEventListener('beforeunload', cleanupOnUnload)
 
 // ─── Start ───
 
