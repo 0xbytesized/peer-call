@@ -21,6 +21,8 @@ import {
   startCameraPipeline,
   loadFilters,
   saveFilters,
+  filtersToCss,
+  detectPipelineSupport,
   DEFAULT_FILTERS,
   type CameraFilters,
   type CameraPipeline,
@@ -138,6 +140,11 @@ let chatOpen = false
 let mediaReady = false
 let cameraPipeline: CameraPipeline | null = null
 let cameraFilters: CameraFilters = loadFilters()
+// WebGL is available in virtually every browser, including iPad Safari,
+// so the pipeline works everywhere. `pipelineSupported` only flips false
+// in the rare case WebGL context creation fails; in that case we fall
+// back to CSS filters on the local <video> (local-only, not retransmitted).
+const pipelineSupported = detectPipelineSupport()
 
 const videoTiles = new Map<
   string,
@@ -315,23 +322,33 @@ async function replaceLocalVideoTrack(newTrack: MediaStreamTrack, stopOld: boole
 
 /**
  * Wrap the current raw camera track in localStream with a filter pipeline
- * and publish the canvas-derived track in its place. Safe to call after
- * `startMedia` populated localStream with a fresh camera track.
+ * (on browsers that support canvas filter) or just apply filters as CSS on
+ * the local preview. Safe to call after `startMedia` populated localStream
+ * with a fresh camera track.
  */
 async function applyCameraPipeline() {
   if (!localStream) return
   const rawTrack = localStream.getVideoTracks()[0]
   if (!rawTrack) return
 
-  // If an old pipeline exists (e.g. camera device change), tear it down
-  // first. The pipeline owns its input track and will stop it.
-  cameraPipeline?.stop()
-  cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
-
-  // localStream.removeTrack(rawTrack) without stopping — the pipeline now
-  // owns it. Then publish the canvas track.
-  await replaceLocalVideoTrack(cameraPipeline.output, false)
+  if (pipelineSupported) {
+    // If an old pipeline exists (e.g. camera device change), tear it down
+    // first. The pipeline owns its input track and will stop it.
+    cameraPipeline?.stop()
+    cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
+    await replaceLocalVideoTrack(cameraPipeline.output, false)
+  } else {
+    // Raw track stays in localStream. Filters apply as CSS only locally.
+    applyCssFiltersToLocalPreview()
+  }
   refreshLocalPreview()
+}
+
+function applyCssFiltersToLocalPreview() {
+  const localTile = videoTiles.get('local')
+  if (localTile) {
+    localTile.video.style.filter = filtersToCss(cameraFilters)
+  }
 }
 
 /**
@@ -683,7 +700,11 @@ function setupCallControls() {
       saturation: parseFloat(filterSaturation.value),
       blur: parseFloat(filterBlur.value),
     }
-    cameraPipeline?.setFilters(cameraFilters)
+    if (cameraPipeline) {
+      cameraPipeline.setFilters(cameraFilters)
+    } else {
+      applyCssFiltersToLocalPreview()
+    }
     updateFilterLabels()
     saveFilters(cameraFilters)
   }
@@ -695,7 +716,11 @@ function setupCallControls() {
 
   btnResetFilters.addEventListener('click', () => {
     cameraFilters = { ...DEFAULT_FILTERS }
-    cameraPipeline?.setFilters(cameraFilters)
+    if (cameraPipeline) {
+      cameraPipeline.setFilters(cameraFilters)
+    } else {
+      applyCssFiltersToLocalPreview()
+    }
     saveFilters(cameraFilters)
     syncFilterInputs()
   })
@@ -765,11 +790,17 @@ function setupCallControls() {
       const rawTrack = newStream.getVideoTracks()[0]
       if (!rawTrack) return
 
-      // Tear down the old pipeline (which stops the old raw track) and
-      // start a fresh one on the new camera.
-      cameraPipeline?.stop()
-      cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
-      await replaceLocalVideoTrack(cameraPipeline.output, false)
+      if (pipelineSupported) {
+        // Tear down the old pipeline (which stops the old raw track) and
+        // start a fresh one on the new camera.
+        cameraPipeline?.stop()
+        cameraPipeline = startCameraPipeline(rawTrack, cameraFilters)
+        await replaceLocalVideoTrack(cameraPipeline.output, false)
+      } else {
+        // No pipeline — publish the new raw track directly; CSS handles local filtering.
+        await replaceLocalVideoTrack(rawTrack, true)
+        applyCssFiltersToLocalPreview()
+      }
       refreshLocalPreview()
     } catch (err) {
       console.error('[PeerCall] Failed to switch camera:', err)

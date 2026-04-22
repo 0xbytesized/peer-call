@@ -39,7 +39,9 @@ PeerCall is a **zero-backend** WebRTC video-conferencing app. Everything runs in
 
 ### Camera filter pipeline
 
-`src/camera-filters.ts` wraps the raw camera track in a `<video> → <canvas>` pipeline whose output is published via `canvas.captureStream()` — that derived track is what sits in `localStream` and the WebRTC senders, so **remote peers see the filtered image, not just the local preview**. Filters (brightness/contrast/saturation/blur) are applied via `ctx.filter` at draw time; values persist in `localStorage` under `peercall-filters`. When the user changes camera device or starts the call, `applyCameraPipeline()` in `main.ts` tears down the old pipeline (which owns and stops the raw camera) and swaps the new canvas track into `localStream` and senders via `replaceTrack`.
+`src/camera-filters.ts` runs a **WebGL** pipeline on the raw camera track: video → texture upload → horizontal gaussian blur (9-tap, FBO) → vertical gaussian blur + brightness/contrast/saturation (composite to canvas) → `canvas.captureStream()`. The captured track is what sits in `localStream` and the WebRTC senders, so **remote peers see the filtered image on every browser** (including iPad Safari, which silently ignores `ctx.filter`). Filters persist in `localStorage` under `peercall-filters`.
+
+When the user changes camera device or starts the call, `applyCameraPipeline()` in `main.ts` tears down the old pipeline (which owns and stops the raw camera) and swaps the new canvas track into `localStream` and senders via `replaceTrack`. If WebGL context creation fails (extremely rare), `detectPipelineSupport()` returns false and filters degrade to `style.filter` on the local `<video>` (local-only, not retransmitted); every filter-update site branches on whether `cameraPipeline` is non-null.
 
 ### Track replacement pattern
 
