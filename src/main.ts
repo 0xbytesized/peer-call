@@ -15,7 +15,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide'
-import { enableNoiseSuppression, disableNoiseSuppression } from './noise-suppression.js'
+import { enableNoiseSuppression, disableNoiseSuppression, updateNoiseSuppressionSource } from './noise-suppression.js'
 import './style.css'
 
 // ─── Icon rendering (Lucide, tree-shaken) ───
@@ -524,17 +524,37 @@ function setupCallControls() {
         audio: { deviceId: { exact: deviceId } },
         video: false,
       })
-      const audioTrack = newStream.getAudioTracks()[0]
-      if (localStream && audioTrack) {
-        localStream.getAudioTracks().forEach((t) => t.stop())
-        localStream.removeTrack(localStream.getAudioTracks()[0])
-        localStream.addTrack(audioTrack)
-        for (const remotePeer of manager.peerList) {
-          const pc = getPeerConnection(remotePeer)
-          if (pc) {
-            const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
-            if (sender) sender.replaceTrack(audioTrack)
-          }
+      if (!localStream) return
+      const rawTrack = newStream.getAudioTracks()[0]
+      if (!rawTrack) return
+
+      // If NS is active, route the new mic through the processing graph and
+      // swap in the processed track instead of the raw one.
+      let trackToPublish: MediaStreamTrack = rawTrack
+      if (noiseSuppression) {
+        const processedStream = updateNoiseSuppressionSource(newStream)
+        if (processedStream) {
+          trackToPublish = processedStream.getAudioTracks()[0]
+        } else {
+          // Pipeline failed — drop back to raw audio and reflect state in UI
+          noiseSuppression = false
+          btnNoise.classList.remove('active')
+          replaceIcon(btnNoise, 'volume-x')
+        }
+      }
+
+      const oldTrack = localStream.getAudioTracks()[0]
+      if (oldTrack) {
+        oldTrack.stop()
+        localStream.removeTrack(oldTrack)
+      }
+      localStream.addTrack(trackToPublish)
+
+      for (const remotePeer of manager.peerList) {
+        const pc = getPeerConnection(remotePeer)
+        if (pc) {
+          const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
+          if (sender) sender.replaceTrack(trackToPublish)
         }
       }
     } catch (err) {
