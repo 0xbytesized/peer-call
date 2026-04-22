@@ -23,10 +23,12 @@ let wasmBinary: ArrayBuffer | null = null
 let initPromise: Promise<void> | null = null
 let isActive = false
 
-// Audio processing nodes
+// Audio processing nodes (pipeline: source → highPass → rnnoise → compressor → destination)
 let audioContext: AudioContext | null = null
 let sourceNode: MediaStreamAudioSourceNode | null = null
+let highPassNode: BiquadFilterNode | null = null
 let rnnoiseNode: RnnoiseWorkletNode | null = null
+let compressorNode: DynamicsCompressorNode | null = null
 let destinationNode: MediaStreamAudioDestinationNode | null = null
 
 // Cloned original track, handed back when NS is disabled
@@ -55,8 +57,10 @@ export async function initNoiseSuppression(): Promise<void> {
 
 function teardownGraph() {
   try {
-    rnnoiseNode?.disconnect()
     sourceNode?.disconnect()
+    highPassNode?.disconnect()
+    rnnoiseNode?.disconnect()
+    compressorNode?.disconnect()
   } catch {
     // disconnect() can throw if already disconnected; ignore
   }
@@ -67,6 +71,8 @@ function teardownGraph() {
   }
   rnnoiseNode = null
   sourceNode = null
+  highPassNode = null
+  compressorNode = null
   destinationNode = null
   if (audioContext && audioContext.state !== 'closed') {
     audioContext.close().catch(() => {})
@@ -87,11 +93,32 @@ async function buildGraph(stream: MediaStream): Promise<MediaStream> {
   await audioContext.audioWorklet.addModule(rnnoiseWorkletUrl)
 
   sourceNode = audioContext.createMediaStreamSource(stream)
+
+  // High-pass filter removes low-frequency rumble (AC hum, desk thumps,
+  // clothing rustle on mic) that RNNoise sometimes lets through as
+  // "stationary" noise.
+  highPassNode = audioContext.createBiquadFilter()
+  highPassNode.type = 'highpass'
+  highPassNode.frequency.value = 80
+  highPassNode.Q.value = 0.7
+
   rnnoiseNode = new RnnoiseWorkletNode(audioContext, { maxChannels: 2, wasmBinary })
+
+  // Gentle compressor evens out the level between speakers who are near
+  // vs far from the mic. Soft knee and 2:1 ratio preserves vocal dynamics.
+  compressorNode = audioContext.createDynamicsCompressor()
+  compressorNode.threshold.value = -28
+  compressorNode.knee.value = 20
+  compressorNode.ratio.value = 2
+  compressorNode.attack.value = 0.005
+  compressorNode.release.value = 0.1
+
   destinationNode = audioContext.createMediaStreamDestination()
 
-  sourceNode.connect(rnnoiseNode)
-  rnnoiseNode.connect(destinationNode)
+  sourceNode.connect(highPassNode)
+  highPassNode.connect(rnnoiseNode)
+  rnnoiseNode.connect(compressorNode)
+  compressorNode.connect(destinationNode)
 
   return new MediaStream([destinationNode.stream.getAudioTracks()[0], ...stream.getVideoTracks()])
 }

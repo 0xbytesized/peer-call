@@ -219,6 +219,53 @@ function saveDevicePref(key: 'mic' | 'speaker' | 'camera', deviceId: string) {
   localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(prefs))
 }
 
+// ─── Mic acquisition helpers ───
+
+/**
+ * Acquire a microphone track. When RNNoise will handle noise suppression,
+ * pass `useBrowserNS=false` so the browser's built-in NS and AGC are off —
+ * double-processing degrades quality (AGC pumping, spectrum already altered).
+ * Echo cancellation stays on either way; RNNoise doesn't replace AEC.
+ */
+async function getMicTrack(deviceId: string | undefined, useBrowserNS: boolean): Promise<MediaStreamTrack> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: useBrowserNS },
+      autoGainControl: { ideal: useBrowserNS },
+    },
+    video: false,
+  })
+  return stream.getAudioTracks()[0]
+}
+
+function currentMicDeviceId(): string | undefined {
+  const track = localStream?.getAudioTracks()[0]
+  return track?.getSettings().deviceId || getDevicePrefs().mic
+}
+
+/**
+ * Replace the audio track in localStream and on every outgoing sender,
+ * stopping and dropping the previous one.
+ */
+async function replaceLocalAudioTrack(newTrack: MediaStreamTrack) {
+  if (!localStream) return
+  const oldTrack = localStream.getAudioTracks()[0]
+  if (oldTrack) {
+    oldTrack.stop()
+    localStream.removeTrack(oldTrack)
+  }
+  localStream.addTrack(newTrack)
+  for (const remotePeer of manager.peerList) {
+    const pc = getPeerConnection(remotePeer)
+    if (pc) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
+      if (sender) await sender.replaceTrack(newTrack)
+    }
+  }
+}
+
 // ─── Media request ───
 
 async function requestMedia() {
@@ -398,52 +445,37 @@ function setupCallControls() {
 
   btnNoise.addEventListener('click', async () => {
     if (!localStream) return
+    const deviceId = currentMicDeviceId()
 
     if (!noiseSuppression) {
       try {
-        const processedStream = await enableNoiseSuppression(localStream)
+        // Re-acquire the mic with browser NS + AGC off so RNNoise sees
+        // untouched audio. Browser NS alters the spectrum and AGC pumps
+        // the level — both break RNNoise's trained assumptions.
+        const cleanTrack = await getMicTrack(deviceId, false)
+        const cleanStream = new MediaStream([cleanTrack])
+        const processedStream = await enableNoiseSuppression(cleanStream)
         const processedTrack = processedStream.getAudioTracks()[0]
         if (processedTrack) {
-          const oldTrack = localStream.getAudioTracks()[0]
-          if (oldTrack) localStream.removeTrack(oldTrack)
-          localStream.addTrack(processedTrack)
-          for (const remotePeer of manager.peerList) {
-            const pc = getPeerConnection(remotePeer)
-            if (pc) {
-              const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
-              if (sender) sender.replaceTrack(processedTrack)
-            }
-          }
+          await replaceLocalAudioTrack(processedTrack)
         }
         noiseSuppression = true
         btnNoise.classList.add('active')
         replaceIcon(btnNoise, 'volume-2')
       } catch (err) {
         console.error('[PeerCall] Failed to enable noise suppression:', err)
+        disableNoiseSuppression()?.stop()
         noiseSuppression = false
         btnNoise.classList.remove('active')
         replaceIcon(btnNoise, 'volume-x')
-        // Restore original audio track if processing failed
-        const originalTrack = disableNoiseSuppression()
-        if (originalTrack && localStream.getAudioTracks().length === 0) {
-          localStream.addTrack(originalTrack)
-        }
       }
     } else {
       try {
-        const originalTrack = disableNoiseSuppression()
-        if (originalTrack) {
-          const processedTrack = localStream.getAudioTracks()[0]
-          if (processedTrack) localStream.removeTrack(processedTrack)
-          localStream.addTrack(originalTrack)
-          for (const remotePeer of manager.peerList) {
-            const pc = getPeerConnection(remotePeer)
-            if (pc) {
-              const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
-              if (sender) sender.replaceTrack(originalTrack)
-            }
-          }
-        }
+        disableNoiseSuppression()?.stop()
+        // Re-acquire with browser NS + AGC back on so the user still gets
+        // some noise suppression when RNNoise is off.
+        const restoredTrack = await getMicTrack(deviceId, true)
+        await replaceLocalAudioTrack(restoredTrack)
       } catch (err) {
         console.error('[PeerCall] Failed to disable noise suppression:', err)
       }
@@ -520,43 +552,29 @@ function setupCallControls() {
     if (!deviceId) return
     saveDevicePref('mic', deviceId)
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: deviceId } },
-        video: false,
-      })
       if (!localStream) return
-      const rawTrack = newStream.getAudioTracks()[0]
-      if (!rawTrack) return
 
-      // If NS is active, route the new mic through the processing graph and
-      // swap in the processed track instead of the raw one.
-      let trackToPublish: MediaStreamTrack = rawTrack
+      // Browser NS off when RNNoise is handling it, on otherwise.
+      const newTrack = await getMicTrack(deviceId, !noiseSuppression)
+
+      let trackToPublish: MediaStreamTrack = newTrack
       if (noiseSuppression) {
+        const newStream = new MediaStream([newTrack])
         const processedStream = await updateNoiseSuppressionSource(newStream)
         if (processedStream) {
           trackToPublish = processedStream.getAudioTracks()[0]
         } else {
-          // Pipeline failed — drop back to raw audio and reflect state in UI
+          // Pipeline failed — release the NS-off track and re-acquire one
+          // with browser NS on so the user isn't left with raw mic audio.
+          newTrack.stop()
+          trackToPublish = await getMicTrack(deviceId, true)
           noiseSuppression = false
           btnNoise.classList.remove('active')
           replaceIcon(btnNoise, 'volume-x')
         }
       }
 
-      const oldTrack = localStream.getAudioTracks()[0]
-      if (oldTrack) {
-        oldTrack.stop()
-        localStream.removeTrack(oldTrack)
-      }
-      localStream.addTrack(trackToPublish)
-
-      for (const remotePeer of manager.peerList) {
-        const pc = getPeerConnection(remotePeer)
-        if (pc) {
-          const sender = pc.getSenders().find((s) => s.track?.kind === 'audio')
-          if (sender) sender.replaceTrack(trackToPublish)
-        }
-      }
+      await replaceLocalAudioTrack(trackToPublish)
     } catch (err) {
       console.error('[PeerCall] Failed to switch mic:', err)
     }
