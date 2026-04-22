@@ -13,8 +13,7 @@
   --radius-sm: 8px;
 }
 
-html,
-body {
+* {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -22,15 +21,16 @@ body {
 
 html {
   background: var(--bg);
-  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   background: var(--bg);
   color: var(--text);
-  height: 100%;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .hidden {
@@ -41,8 +41,8 @@ body {
 
 .view {
   width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -167,14 +167,15 @@ body {
 /* ─── Call View ─── */
 
 .video-grid {
-  width: 100vw;
-  height: calc(100vh - 80px);
-  height: calc(100dvh - 80px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 80px;
   display: grid;
   gap: 4px;
   padding: 4px;
   background: var(--bg);
-  align-content: center;
   overflow: hidden;
 }
 
@@ -183,13 +184,16 @@ body {
   grid-template-rows: 1fr;
 }
 .video-grid[data-count='1'] .video-tile {
-  max-height: calc(100vh - 80px);
+  height: 100%;
+  max-height: 100%;
 }
 .video-grid[data-count='2'] {
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
 }
 .video-grid[data-count='3'] {
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
 }
 .video-grid[data-count='4'] {
   grid-template-columns: 1fr 1fr;
@@ -209,10 +213,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
+  min-height: 0;
 }
 
 .video-tile video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
