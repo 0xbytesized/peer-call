@@ -134,6 +134,8 @@ const btnCameraMenu = $<HTMLButtonElement>('btn-camera-menu')
 const btnCloseCamera = $<HTMLButtonElement>('btn-close-camera')
 const cameraPanel = $<HTMLDivElement>('camera-panel')
 const btnResetFilters = $<HTMLButtonElement>('btn-reset-filters')
+const toggleMirror = $<HTMLInputElement>('toggle-mirror')
+const setupToggleMirror = $<HTMLInputElement>('setup-toggle-mirror')
 const filterBrightness = $<HTMLInputElement>('filter-brightness')
 const filterContrast = $<HTMLInputElement>('filter-contrast')
 const filterSaturation = $<HTMLInputElement>('filter-saturation')
@@ -163,6 +165,13 @@ let chatOpen = false
 let mediaReady = false
 let cameraPipeline: CameraPipeline | null = null
 let cameraFilters: CameraFilters = loadFilters()
+// Mirror the local preview only (what the user sees of themselves); the
+// outgoing stream is never mirrored so remote peers see photo orientation.
+// Default true — this is what most video-call users are accustomed to.
+let cameraMirror: boolean = (() => {
+  const saved = localStorage.getItem('peercall-mirror')
+  return saved === null ? true : saved === 'true'
+})()
 // WebGL is available in virtually every browser, including iPad Safari,
 // so the pipeline works everywhere. `pipelineSupported` only flips false
 // in the rare case WebGL context creation fails; in that case we fall
@@ -245,6 +254,7 @@ async function startSetup(name: string) {
 
   await acquireMediaForSetup()
   await populateSetupDevices()
+  applyMirrorSetting()
   attachSetupHandlers()
 }
 
@@ -377,6 +387,10 @@ function attachSetupHandlers() {
 
   setupToggleNoise.addEventListener('change', async () => {
     await setNoiseSuppressionEnabled(setupToggleNoise.checked)
+  })
+
+  setupToggleMirror.addEventListener('change', () => {
+    setCameraMirror(setupToggleMirror.checked)
   })
 
   const onFilterChange = () => {
@@ -624,6 +638,21 @@ function applyCssFiltersToLocalPreview() {
   setupVideo.style.filter = css
 }
 
+/** Apply the current mirror setting to every local preview surface. */
+function applyMirrorSetting() {
+  setupVideo.classList.toggle('mirror', cameraMirror)
+  const localTile = videoTiles.get('local')
+  if (localTile) localTile.video.classList.toggle('mirror', cameraMirror)
+  setupToggleMirror.checked = cameraMirror
+  toggleMirror.checked = cameraMirror
+}
+
+function setCameraMirror(enabled: boolean) {
+  cameraMirror = enabled
+  localStorage.setItem('peercall-mirror', String(enabled))
+  applyMirrorSetting()
+}
+
 /**
  * Reassign the local tile's video srcObject to pick up a new track cleanly.
  * MediaStream track changes propagate automatically to HTMLMediaElement, but
@@ -825,6 +854,7 @@ function showCallView(code: string) {
   btnCamera.classList.toggle('off', !cameraOn)
   btnMic.classList.toggle('off', !micOn)
   updateNoiseSuppressionUI()
+  applyMirrorSetting()
   setupCallControls()
 }
 
@@ -1039,6 +1069,10 @@ function setupCallControls() {
     syncFilterInputs()
   })
 
+  toggleMirror.addEventListener('change', () => {
+    setCameraMirror(toggleMirror.checked)
+  })
+
   selectAudioInput.addEventListener('change', async () => {
     const deviceId = selectAudioInput.value
     if (deviceId) await switchMic(deviceId)
@@ -1161,7 +1195,7 @@ function addLocalVideo(stream: MediaStream) {
   tile.video.autoplay = true
   tile.video.muted = true
   tile.video.playsInline = true
-  tile.video.classList.add('mirror')
+  tile.video.classList.toggle('mirror', cameraMirror)
   // Make local name tag clickable for inline rename
   tile.nameTag.classList.add('editable')
   tile.nameTag.title = 'Click to change your name'

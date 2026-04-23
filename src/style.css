@@ -253,7 +253,7 @@ body {
   font-size: 0.75rem;
 }
 
-.video-tile video.mirror {
+video.mirror {
   transform: scaleX(-1);
 }
 

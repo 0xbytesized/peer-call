@@ -69,7 +69,7 @@
     <div id="setup" class="view hidden">
       <div class="setup-container">
         <div class="setup-preview">
-          <video id="setup-video" autoplay playsinline muted class="mirror"></video>
+          <video id="setup-video" autoplay playsinline muted></video>
           <div id="setup-no-camera" class="setup-no-camera hidden">
             <span>📷</span>
             <p>Cámara no disponible</p>
@@ -109,6 +109,10 @@
 
           <details class="setup-filters">
             <summary>Filtros de cámara</summary>
+            <label class="setup-toggle">
+              <input id="setup-toggle-mirror" type="checkbox" />
+              <span>Espejar mi vídeo</span>
+            </label>
             <div class="filter-row">
               <label for="setup-filter-brightness">Brillo<span id="setup-val-brightness" class="filter-val">100%</span></label>
               <input id="setup-filter-brightness" type="range" min="0.5" max="2" step="0.05" value="1" />
@@ -204,6 +208,10 @@
               <select id="select-video-input"></select>
             </label>
             <div class="settings-divider"></div>
+            <label class="setup-toggle">
+              <input id="toggle-mirror" type="checkbox" />
+              <span>Espejar mi vídeo</span>
+            </label>
             <div class="filter-row">
               <label for="filter-brightness">Brillo<span id="val-brightness" class="filter-val">100%</span></label>
               <input id="filter-brightness" type="range" min="0.5" max="2" step="0.05" value="1" />
