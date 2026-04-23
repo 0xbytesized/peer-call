@@ -27,6 +27,7 @@ import {
   type CameraFilters,
   type CameraPipeline,
 } from './camera-filters.js'
+import { startGainPipeline, loadGain, saveGain, type GainPipeline } from './mic-gain.js'
 import './style.css'
 
 // ─── Icon rendering (Lucide, tree-shaken) ───
@@ -136,6 +137,10 @@ const cameraPanel = $<HTMLDivElement>('camera-panel')
 const btnResetFilters = $<HTMLButtonElement>('btn-reset-filters')
 const toggleMirror = $<HTMLInputElement>('toggle-mirror')
 const setupToggleMirror = $<HTMLInputElement>('setup-toggle-mirror')
+const filterGain = $<HTMLInputElement>('filter-gain')
+const valGain = $<HTMLSpanElement>('val-gain')
+const setupFilterGain = $<HTMLInputElement>('setup-filter-gain')
+const setupValGain = $<HTMLSpanElement>('setup-val-gain')
 const filterBrightness = $<HTMLInputElement>('filter-brightness')
 const filterContrast = $<HTMLInputElement>('filter-contrast')
 const filterSaturation = $<HTMLInputElement>('filter-saturation')
@@ -172,6 +177,11 @@ let cameraMirror: boolean = (() => {
   const saved = localStorage.getItem('peercall-mirror')
   return saved === null ? true : saved === 'true'
 })()
+let micGain: number = loadGain()
+let gainPipeline: GainPipeline | null = null
+// Last "source" audio track before gain — used to rebuild the gain stage
+// when the slider changes without going back to getUserMedia / NS.
+let lastMicSourceTrack: MediaStreamTrack | null = null
 // WebGL is available in virtually every browser, including iPad Safari,
 // so the pipeline works everywhere. `pipelineSupported` only flips false
 // in the rare case WebGL context creation fails; in that case we fall
@@ -273,6 +283,8 @@ async function acquireMediaForSetup() {
     }
     setupVideo.srcObject = localStream
     setupNoCamera.classList.add('hidden')
+    const rawAudio = localStream.getAudioTracks()[0]
+    if (rawAudio) await publishMic(rawAudio)
     startMicMeter()
   } catch {
     try {
@@ -282,6 +294,8 @@ async function acquireMediaForSetup() {
       cameraOn = false
       setupVideo.srcObject = null
       setupNoCamera.classList.remove('hidden')
+      const rawAudio = localStream.getAudioTracks()[0]
+      if (rawAudio) await publishMic(rawAudio)
       startMicMeter()
     } catch {
       mediaReady = false
@@ -393,6 +407,12 @@ function attachSetupHandlers() {
     setCameraMirror(setupToggleMirror.checked)
   })
 
+  setupFilterGain.value = String(micGain)
+  setupValGain.textContent = `${Math.round(micGain * 100)}%`
+  setupFilterGain.addEventListener('input', () => {
+    setMicGain(parseFloat(setupFilterGain.value))
+  })
+
   const onFilterChange = () => {
     cameraFilters = {
       brightness: parseFloat(setupFilterBrightness.value),
@@ -429,6 +449,9 @@ function attachSetupHandlers() {
 
 function cancelSetup() {
   stopMicMeter()
+  gainPipeline?.stop()
+  gainPipeline = null
+  lastMicSourceTrack = null
   cameraPipeline?.stop()
   cameraPipeline = null
   manager?.leave()
@@ -464,7 +487,9 @@ async function confirmSetup() {
       showCallView(intent.roomCode)
     }
     pendingSetup = null
-    stopMicMeter()
+    // Don't stop the mic meter — it keeps driving the mic button's level bar
+    // during the call. It'll be torn down by manager.leave() when the user
+    // hangs up or closes the tab.
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     alert((intent.mode === 'create' ? 'No se pudo crear la sala: ' : 'No se pudo unir: ') + message)
@@ -501,8 +526,9 @@ function startMicMeter() {
         const v = Math.abs(data[i] - 128)
         if (v > peak) peak = v
       }
-      const pct = Math.min(100, (peak / 128) * 200)
-      setupMicLevel.style.width = `${pct}%`
+      const level = Math.min(1, (peak / 128) * 2)
+      setupMicLevel.style.width = `${level * 100}%`
+      btnMic.style.setProperty('--mic-level', String(level))
       micMeterRaf = requestAnimationFrame(tick)
     }
     tick()
@@ -564,14 +590,17 @@ function currentMicDeviceId(): string | undefined {
 }
 
 /**
- * Replace the audio track in localStream and on every outgoing sender,
- * stopping and dropping the previous one.
+ * Replace the audio track in localStream and on every outgoing sender.
+ * By default the previous track is stopped. Pass `stopOld=false` when the
+ * caller knows the old track is still being consumed by something (e.g.
+ * it's the input of a gain pipeline that's about to output this newTrack).
  */
-async function replaceLocalAudioTrack(newTrack: MediaStreamTrack) {
+async function replaceLocalAudioTrack(newTrack: MediaStreamTrack, stopOld = true) {
   if (!localStream) return
   const oldTrack = localStream.getAudioTracks()[0]
+  if (oldTrack === newTrack) return
   if (oldTrack) {
-    oldTrack.stop()
+    if (stopOld) oldTrack.stop()
     localStream.removeTrack(oldTrack)
   }
   localStream.addTrack(newTrack)
@@ -684,23 +713,79 @@ async function switchMic(deviceId: string) {
   if (!localStream) return
   try {
     const newTrack = await getMicTrack(deviceId, !noiseSuppression)
-    let trackToPublish: MediaStreamTrack = newTrack
+    let sourceTrack: MediaStreamTrack = newTrack
     if (noiseSuppression) {
       const newStream = new MediaStream([newTrack])
       const processedStream = await updateNoiseSuppressionSource(newStream)
       if (processedStream) {
-        trackToPublish = processedStream.getAudioTracks()[0]
+        sourceTrack = processedStream.getAudioTracks()[0]
       } else {
         newTrack.stop()
-        trackToPublish = await getMicTrack(deviceId, true)
+        sourceTrack = await getMicTrack(deviceId, true)
         noiseSuppression = false
         updateNoiseSuppressionUI()
       }
     }
-    await replaceLocalAudioTrack(trackToPublish)
-    if (micMeterCtx) startMicMeter()
+    await publishMic(sourceTrack)
   } catch (err) {
     console.error('[PeerCall] switchMic failed:', err)
+  }
+}
+
+/**
+ * Publish a "source" mic track (raw or NS-processed) to localStream and
+ * senders, wrapping it with the gain stage if gain ≠ 1.
+ */
+async function publishMic(sourceTrack: MediaStreamTrack) {
+  lastMicSourceTrack = sourceTrack
+
+  // Rebuild gain pipeline for the new source
+  gainPipeline?.stop()
+  gainPipeline = null
+
+  let finalTrack: MediaStreamTrack = sourceTrack
+  if (micGain !== 1) {
+    gainPipeline = startGainPipeline(sourceTrack, micGain)
+    finalTrack = gainPipeline.output
+  }
+
+  // If the old track in localStream IS the sourceTrack (initial publish after
+  // getUserMedia), don't stop it — the gain pipeline is consuming it.
+  const currentTrack = localStream?.getAudioTracks()[0]
+  const stopOld = currentTrack !== sourceTrack
+  await replaceLocalAudioTrack(finalTrack, stopOld)
+  if (micMeterCtx) startMicMeter()
+}
+
+function setMicGain(value: number) {
+  micGain = value
+  saveGain(value)
+  valGain.textContent = `${Math.round(value * 100)}%`
+  setupValGain.textContent = `${Math.round(value * 100)}%`
+  if (filterGain.value !== String(value)) filterGain.value = String(value)
+  if (setupFilterGain.value !== String(value)) setupFilterGain.value = String(value)
+
+  if (!lastMicSourceTrack) return
+
+  if (value === 1) {
+    // Bypass the gain stage entirely
+    if (gainPipeline) {
+      gainPipeline.stop()
+      gainPipeline = null
+      replaceLocalAudioTrack(lastMicSourceTrack, false).then(() => {
+        if (micMeterCtx) startMicMeter()
+      })
+    }
+  } else if (gainPipeline) {
+    // Just tweak the existing GainNode — no click, no track swap
+    gainPipeline.setGain(value)
+  } else {
+    // Build a new gain pipeline on top of the current source;
+    // don't stop lastMicSourceTrack — it's the gain pipeline's input now.
+    gainPipeline = startGainPipeline(lastMicSourceTrack, value)
+    replaceLocalAudioTrack(gainPipeline.output, false).then(() => {
+      if (micMeterCtx) startMicMeter()
+    })
   }
 }
 
@@ -756,7 +841,7 @@ async function setNoiseSuppressionEnabled(enabled: boolean) {
       const cleanStream = new MediaStream([cleanTrack])
       const processedStream = await enableNoiseSuppression(cleanStream)
       const processedTrack = processedStream.getAudioTracks()[0]
-      if (processedTrack) await replaceLocalAudioTrack(processedTrack)
+      if (processedTrack) await publishMic(processedTrack)
       noiseSuppression = true
     } catch (err) {
       console.error('[PeerCall] NS enable failed:', err)
@@ -767,13 +852,12 @@ async function setNoiseSuppressionEnabled(enabled: boolean) {
     try {
       disableNoiseSuppression()?.stop()
       const restoredTrack = await getMicTrack(deviceId, true)
-      await replaceLocalAudioTrack(restoredTrack)
+      await publishMic(restoredTrack)
     } catch (err) {
       console.error('[PeerCall] NS disable failed:', err)
     }
     noiseSuppression = false
   }
-  if (micMeterCtx) startMicMeter()
   updateNoiseSuppressionUI()
 }
 
@@ -1071,6 +1155,12 @@ function setupCallControls() {
 
   toggleMirror.addEventListener('change', () => {
     setCameraMirror(toggleMirror.checked)
+  })
+
+  filterGain.value = String(micGain)
+  valGain.textContent = `${Math.round(micGain * 100)}%`
+  filterGain.addEventListener('input', () => {
+    setMicGain(parseFloat(filterGain.value))
   })
 
   selectAudioInput.addEventListener('change', async () => {

@@ -97,6 +97,11 @@
             <select id="setup-select-mic"></select>
           </label>
 
+          <div class="filter-row">
+            <label for="setup-filter-gain">Volumen del mic<span id="setup-val-gain" class="filter-val">100%</span></label>
+            <input id="setup-filter-gain" type="range" min="0" max="3" step="0.05" value="1" />
+          </div>
+
           <label class="setup-field" id="setup-speaker-field">
             <span>Altavoz</span>
             <select id="setup-select-speaker"></select>
@@ -172,6 +177,10 @@
             <span>Microphone</span>
             <select id="select-audio-input"></select>
           </label>
+          <div class="filter-row">
+            <label for="filter-gain">Volumen del mic<span id="val-gain" class="filter-val">100%</span></label>
+            <input id="filter-gain" type="range" min="0" max="3" step="0.05" value="1" />
+          </div>
           <label>
             <span>Speaker</span>
             <select id="select-audio-output"></select>

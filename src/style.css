@@ -313,6 +313,29 @@ video.mirror {
   background: rgba(239, 68, 68, 0.25);
   color: #ef4444;
 }
+
+/* Mic level indicator: a bar at the bottom of #btn-mic that scales with
+   the current mic amplitude (driven by the --mic-level CSS var, 0..1). */
+#btn-mic {
+  position: relative;
+}
+#btn-mic::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--success);
+  transform: scaleX(var(--mic-level, 0));
+  transform-origin: left center;
+  transition: transform 0.1s ease-out;
+  pointer-events: none;
+}
+#btn-mic.off::after {
+  display: none;
+}
 .control-btn-danger {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
